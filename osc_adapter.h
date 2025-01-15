@@ -138,7 +138,6 @@ struct OSCAdapter
                             auto pev =
                                 makeParameterValueEvent(0, -1, -1, -1, -1, mit->second, darg0);
                             addEventLocked((const clap_event_header *)&pev);
-                            break;
                         }
                     }
                     if (msg->match("/set_parameter")
