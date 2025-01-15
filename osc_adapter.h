@@ -3,17 +3,59 @@
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/helpers/event-list.hh"
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <memory>
 #include <iostream>
 #include <unordered_map>
+#include "text/choc_StringUtilities.h"
 #include "threading/choc_SpinLock.h"
 #include "oscpkt.hh"
 #include "udp.hh"
 
 namespace sst::osc_adapter
 {
+
+inline clap_event_param_value makeParameterValueEvent(uint32_t time, int16_t port, int16_t channel,
+                                                      int16_t key, int32_t note_id,
+                                                      clap_id param_id, double value,
+                                                      void *cookie = nullptr)
+{
+    clap_event_param_value pev;
+    pev.header.flags = 0;
+    pev.header.size = sizeof(clap_event_param_value);
+    pev.header.type = CLAP_EVENT_PARAM_VALUE;
+    pev.header.time = time;
+    pev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    pev.port_index = port;
+    pev.channel = channel;
+    pev.key = key;
+    pev.note_id = note_id;
+    pev.param_id = param_id;
+    pev.value = value;
+    pev.cookie = cookie;
+    return pev;
+}
+
+inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port, int16_t channel,
+                                     int16_t key, int32_t note_id, double velocity)
+{
+    assert(etype >= CLAP_EVENT_NOTE_ON && etype <= CLAP_EVENT_NOTE_END);
+    clap_event_note nev;
+    nev.header.flags = 0;
+    nev.header.size = sizeof(clap_event_note);
+    nev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    nev.header.time = time;
+    nev.header.type = etype;
+    nev.port_index = port;
+    nev.channel = channel;
+    nev.key = key;
+    nev.note_id = note_id;
+    nev.velocity = velocity;
+    return nev;
+}
+
 struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
@@ -27,11 +69,20 @@ struct OSCAdapter
             if (paramsExtension->get_info(p, i, &pinfo))
             {
                 indexToClapParamInfo[i] = pinfo;
+                idToClapParamInfo[pinfo.id] = pinfo;
+                auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
+                addressToClapId[address] = pinfo.id;
             }
         }
     }
+    std::string makeOscAddressFromParameterName(std::string parname)
+    {
+        auto lc = choc::text::toLowerCase(parname);
+        lc = choc::text::replace(lc, " ", "_");
+        return lc;
+    }
     const clap_input_events *getInputEventQueue() { return eventList.clapInputEvents(); }
-    clap_output_events *getOutputEventQueue(); // auto thread event queue
+    clap_output_events *getOutputEventQueue();
 
     void startWith(uint32_t inputPort, uint32_t outputPort)
     {
@@ -79,6 +130,17 @@ struct OSCAdapter
                     int32_t iarg0 = CLAP_INVALID_ID;
                     float darg0 = 0.0f;
                     float darg1 = 0.0f;
+                    auto mit = addressToClapId.find(msg->addressPattern());
+                    if (mit != addressToClapId.end())
+                    {
+                        if (msg->match(mit->first).popFloat(darg0).isOkNoMoreArgs())
+                        {
+                            auto pev =
+                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second, darg0);
+                            addEventLocked((const clap_event_header *)&pev);
+                            break;
+                        }
+                    }
                     if (msg->match("/set_parameter")
                             .popInt32(iarg0)
                             .popFloat(darg0)
@@ -87,38 +149,33 @@ struct OSCAdapter
                         auto it = indexToClapParamInfo.find(iarg0);
                         if (it != indexToClapParamInfo.end())
                         {
-                            // constructing clap events like this is a bit verbose,
-                            // will probably want some kind of abstraction for this
-                            clap_event_param_value pev;
-                            pev.header.flags = 0;
-                            pev.header.size = sizeof(clap_event_param_value);
-                            pev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                            pev.header.time = 0;
-                            pev.header.type = CLAP_EVENT_PARAM_VALUE;
-                            pev.cookie = it->second.cookie;
-                            pev.channel = -1;
-                            pev.port_index = -1;
-                            pev.key = -1;
-                            pev.param_id = it->second.id;
-                            pev.value = darg0;
+                            auto pev =
+                                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, darg0);
                             addEventLocked((const clap_event_header *)&pev);
                         }
                     }
                     else if (msg->match("/mnote").popFloat(darg0).popFloat(darg1).isOkNoMoreArgs())
                     {
-                        clap_event_note nev;
-                        nev.header.flags = 0;
-                        nev.header.size = sizeof(clap_event_note);
-                        nev.header.type = CLAP_EVENT_NOTE_ON;
-                        nev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                        nev.header.time = 0;
-                        nev.channel = 0;
-                        nev.port_index = -1;
-                        // need to figure out how to handle optional osc arguments with oscpkt
-                        nev.note_id = -1;
-                        nev.key = (int)darg0;
-                        // Clap note velocity is float 0..1
-                        nev.velocity = darg1 / 127;
+                        uint16_t et = CLAP_EVENT_NOTE_ON;
+                        double velo = 0.0;
+                        if (darg0 > 0.0f)
+                        {
+                            velo = darg1 / 127;
+                        }
+                        else
+                        {
+                            et = CLAP_EVENT_NOTE_OFF;
+                        }
+                        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)darg0, -1, velo);
+                        addEventLocked((const clap_event_header *)&nev);
+                    }
+                    else if (msg->match("/mnote/rel")
+                                 .popFloat(darg0)
+                                 .popFloat(darg1)
+                                 .isOkNoMoreArgs())
+                    {
+                        auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)darg0, -1,
+                                                 darg1 / 127.0);
                         addEventLocked((const clap_event_header *)&nev);
                     }
                     else
@@ -140,6 +197,8 @@ struct OSCAdapter
     const clap_plugin *targetPlugin = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
     std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
+    std::unordered_map<clap_id, clap_param_info> idToClapParamInfo;
+    std::unordered_map<std::string, clap_id> addressToClapId;
     choc::threading::SpinLock spinLock;
 
   private:
