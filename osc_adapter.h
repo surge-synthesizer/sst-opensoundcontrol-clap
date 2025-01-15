@@ -93,7 +93,7 @@ struct OSCAdapter
                             pev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
                             pev.header.time = 0;
                             pev.header.type = CLAP_EVENT_PARAM_VALUE;
-                            pev.cookie = nullptr; // to be nice, should implement this properly
+                            pev.cookie = it->second.cookie;
                             pev.channel = -1;
                             pev.port_index = -1;
                             pev.key = -1;
