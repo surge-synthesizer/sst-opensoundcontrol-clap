@@ -87,8 +87,7 @@ struct OSCAdapter
     void startWith(uint32_t inputPort, uint32_t outputPort)
     {
         oscThreadShouldStop = false;
-        oscThread =
-            std::make_unique<std::thread>([=, this]() { runOscThread(inputPort, outputPort); });
+        oscThread = std::make_unique<std::thread>([=]() { runOscThread(inputPort, outputPort); });
     }
     void stop()
     {
