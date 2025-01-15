@@ -104,10 +104,18 @@ struct OSCAdapter
                             spinLock.unlock();
                         }
                     }
+                    else
+                    {
+                        handleCustomMessage(msg);
+                    }
                 }
             }
         }
     }
+    // Subclasses can implement the method to handle custom OSC messages.
+    // The signature is likely to change since we probably won't end up
+    // using oscpkt in the end.
+    virtual void handleCustomMessage(oscpkt::Message *msg) {}
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;

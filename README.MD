@@ -10,4 +10,5 @@ There are various issues :
 - Only one kind of parameter change OSC message supported at the moment
 - No outbound communications of any kind, this only receives OSC messages at the moment
 and doesn't notify the Clap host application of parameter changes
+- Error handling is not adequate
 
