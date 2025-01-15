@@ -6,9 +6,8 @@ There are various issues :
 
 - The oscpkt library used for OSC communications is outdated
 - A spinlock is used (from the Choc library) to protect the Clap event list
-- Dependency on the Clap C++ helper library
+- Dependency on the Clap C++ helper library (for the event list). Perhaps not a big deal since
+C++ Clap plugins are likely to use that anyway.
 - Not many OSC message types handled
-- No outbound communications of any kind, this only receives OSC messages at the moment
-and doesn't notify the Clap host application of parameter changes
+- No outbound communications, this only receives OSC messages at the moment
 - Error handling is not adequate
-
