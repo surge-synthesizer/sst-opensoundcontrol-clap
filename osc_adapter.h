@@ -3,6 +3,7 @@
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/helpers/event-list.hh"
+#include <mutex>
 #include <thread>
 #include <memory>
 #include <iostream>
@@ -100,9 +101,7 @@ struct OSCAdapter
                             pev.key = -1;
                             pev.param_id = it->second.id;
                             pev.value = darg0;
-                            spinLock.lock();
-                            eventList.push((const clap_event_header *)&pev);
-                            spinLock.unlock();
+                            addEventLocked((const clap_event_header *)&pev);
                         }
                     }
                     else if (msg->match("/mnote").popFloat(darg0).popFloat(darg1).isOkNoMoreArgs())
@@ -120,9 +119,7 @@ struct OSCAdapter
                         nev.key = (int)darg0;
                         // Clap note velocity is float 0..1
                         nev.velocity = darg1 / 127;
-                        spinLock.lock();
-                        eventList.push((const clap_event_header *)&nev);
-                        spinLock.unlock();
+                        addEventLocked((const clap_event_header *)&nev);
                     }
                     else
                     {
@@ -135,6 +132,7 @@ struct OSCAdapter
     // Subclasses can implement the method to handle custom OSC messages.
     // The signature is likely to change since we probably won't end up
     // using oscpkt in the end.
+    // Will be called from a separate non-GUI/non-audio thread.
     virtual void handleCustomMessage(oscpkt::Message *msg) {}
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
@@ -143,5 +141,12 @@ struct OSCAdapter
     clap_plugin_params *paramsExtension = nullptr;
     std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
     choc::threading::SpinLock spinLock;
+
+  private:
+    void addEventLocked(const clap_event_header *h)
+    {
+        std::lock_guard<choc::threading::SpinLock> guard(spinLock);
+        eventList.push(h);
+    }
 };
 } // namespace sst::osc_adapter
