@@ -9,8 +9,8 @@
 #include <memory>
 #include <iostream>
 #include <unordered_map>
-#include "text/choc_StringUtilities.h"
-#include "threading/choc_SpinLock.h"
+#include "choc/text/choc_StringUtilities.h"
+#include "choc/threading/choc_SpinLock.h"
 #include "oscpkt.hh"
 #include "udp.hh"
 
@@ -71,7 +71,7 @@ struct OSCAdapter
                 indexToClapParamInfo[i] = pinfo;
                 idToClapParamInfo[pinfo.id] = pinfo;
                 auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                addressToClapId[address] = pinfo.id;
+                addressToClapInfo[address] = pinfo;
             }
         }
     }
@@ -130,13 +130,13 @@ struct OSCAdapter
                     int32_t iarg0 = CLAP_INVALID_ID;
                     float darg0 = 0.0f;
                     float darg1 = 0.0f;
-                    auto mit = addressToClapId.find(msg->addressPattern());
-                    if (mit != addressToClapId.end())
+                    auto mit = addressToClapInfo.find(msg->addressPattern());
+                    if (mit != addressToClapInfo.end())
                     {
                         if (msg->match(mit->first).popFloat(darg0).isOkNoMoreArgs())
                         {
                             auto pev =
-                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second, darg0);
+                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, darg0);
                             addEventLocked((const clap_event_header *)&pev);
                         }
                     }
@@ -157,7 +157,7 @@ struct OSCAdapter
                     {
                         uint16_t et = CLAP_EVENT_NOTE_ON;
                         double velo = 0.0;
-                        if (darg0 > 0.0f)
+                        if (darg1 > 0.0f)
                         {
                             velo = darg1 / 127;
                         }
@@ -197,7 +197,7 @@ struct OSCAdapter
     clap_plugin_params *paramsExtension = nullptr;
     std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
     std::unordered_map<clap_id, clap_param_info> idToClapParamInfo;
-    std::unordered_map<std::string, clap_id> addressToClapId;
+    std::unordered_map<std::string, clap_param_info> addressToClapInfo;
     choc::threading::SpinLock spinLock;
 
   private:
