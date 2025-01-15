@@ -76,7 +76,8 @@ struct OSCAdapter
                 while (pr.isOk() && (msg = pr.popMessage()) != nullptr)
                 {
                     int32_t iarg0 = CLAP_INVALID_ID;
-                    float darg0 = 0.0;
+                    float darg0 = 0.0f;
+                    float darg1 = 0.0f;
                     if (msg->match("/set_parameter")
                             .popInt32(iarg0)
                             .popFloat(darg0)
@@ -103,6 +104,25 @@ struct OSCAdapter
                             eventList.push((const clap_event_header *)&pev);
                             spinLock.unlock();
                         }
+                    }
+                    else if (msg->match("/mnote").popFloat(darg0).popFloat(darg1).isOkNoMoreArgs())
+                    {
+                        clap_event_note nev;
+                        nev.header.flags = 0;
+                        nev.header.size = sizeof(clap_event_note);
+                        nev.header.type = CLAP_EVENT_NOTE_ON;
+                        nev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                        nev.header.time = 0;
+                        nev.channel = 0;
+                        nev.port_index = -1;
+                        // need to figure out how to handle optional osc arguments with oscpkt
+                        nev.note_id = -1;
+                        nev.key = (int)darg0;
+                        // Clap note velocity is float 0..1
+                        nev.velocity = darg1 / 127;
+                        spinLock.lock();
+                        eventList.push((const clap_event_header *)&nev);
+                        spinLock.unlock();
                     }
                     else
                     {
