@@ -57,15 +57,7 @@ inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port
     return nev;
 }
 
-struct DefaultCustomResponder
-{
-    void handleCustomMessage(oscpkt::Message *msg)
-    {
-        std::cout << "unhandled OSC message : " << msg->addressPattern() << std::endl;
-    }
-};
-
-template <typename CustomResponder = DefaultCustomResponder> struct OSCAdapter
+struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
     {
@@ -188,13 +180,14 @@ template <typename CustomResponder = DefaultCustomResponder> struct OSCAdapter
                     }
                     else
                     {
-                        customResponder.handleCustomMessage(msg);
+                        if (onCustomMessage)
+                            onCustomMessage(msg);
                     }
                 }
             }
         }
     }
-    CustomResponder customResponder;
+    std::function<void(oscpkt::Message *msg)> onCustomMessage;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;
