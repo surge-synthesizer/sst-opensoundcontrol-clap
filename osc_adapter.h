@@ -5,6 +5,7 @@
 #include "clap/helpers/event-list.hh"
 #include <cstdint>
 #include <mutex>
+#include <ostream>
 #include <thread>
 #include <memory>
 #include <iostream>
@@ -56,22 +57,31 @@ inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port
     return nev;
 }
 
-struct OSCAdapter
+struct DefaultCustomResponder
+{
+    void handleCustomMessage(oscpkt::Message *msg)
+    {
+        std::cout << "unhandled OSC message : " << msg->addressPattern() << std::endl;
+    }
+};
+
+template <typename CustomResponder = DefaultCustomResponder> struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
     {
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
-        if (!paramsExtension)
-            throw std::runtime_error("plugin doesn't implement parameters");
-        for (size_t i = 0; i < paramsExtension->count(p); ++i)
+        if (paramsExtension)
         {
-            clap_param_info pinfo;
-            if (paramsExtension->get_info(p, i, &pinfo))
+            for (size_t i = 0; i < paramsExtension->count(p); ++i)
             {
-                indexToClapParamInfo[i] = pinfo;
-                idToClapParamInfo[pinfo.id] = pinfo;
-                auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                addressToClapInfo[address] = pinfo;
+                clap_param_info pinfo;
+                if (paramsExtension->get_info(p, i, &pinfo))
+                {
+                    indexToClapParamInfo[i] = pinfo;
+                    idToClapParamInfo[pinfo.id] = pinfo;
+                    auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
+                    addressToClapInfo[address] = pinfo;
+                }
             }
         }
     }
@@ -178,17 +188,13 @@ struct OSCAdapter
                     }
                     else
                     {
-                        handleCustomMessage(msg);
+                        customResponder.handleCustomMessage(msg);
                     }
                 }
             }
         }
     }
-    // Subclasses can implement the method to handle custom OSC messages.
-    // The signature is likely to change since we probably won't end up
-    // using oscpkt in the end.
-    // Will be called from a separate non-GUI/non-audio thread.
-    virtual void handleCustomMessage(oscpkt::Message *msg) {}
+    CustomResponder customResponder;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;
