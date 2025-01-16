@@ -4,6 +4,7 @@
 #include "clap/ext/params.h"
 #include "clap/helpers/event-list.hh"
 #include <cstdint>
+#include <fstream>
 #include <mutex>
 #include <ostream>
 #include <thread>
@@ -61,13 +62,14 @@ struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
     {
-        onCustomMessage = [this](oscpkt::Message* msg)
+        onUnhandledMessage = [this](oscpkt::Message* msg)
         {
             std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl;
         };
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
+            std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
             for (size_t i = 0; i < paramsExtension->count(p); ++i)
             {
                 clap_param_info pinfo;
@@ -76,6 +78,7 @@ struct OSCAdapter
                     indexToClapParamInfo[i] = pinfo;
                     idToClapParamInfo[pinfo.id] = pinfo;
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
+                    outfile << pinfo.name << " -> " << address << " range " << pinfo.min_value << " .. " << pinfo.max_value << "\n";
                     addressToClapInfo[address] = pinfo;
                 }
             }
@@ -132,7 +135,8 @@ struct OSCAdapter
                 oscpkt::Message *msg = nullptr;
                 while (pr.isOk() && (msg = pr.popMessage()) != nullptr)
                 {
-                    int32_t iarg0 = CLAP_INVALID_ID;
+                    int32_t iarg0 = 0;
+                    int32_t iarg1 = 0;
                     float darg0 = 0.0f;
                     float darg1 = 0.0f;
                     auto mit = addressToClapInfo.find(msg->addressPattern());
@@ -145,7 +149,7 @@ struct OSCAdapter
                             addEventLocked((const clap_event_header *)&pev);
                         }
                     }
-                    if (msg->match("/set_parameter")
+                    else if (msg->match("/set_parameter")
                             .popInt32(iarg0)
                             .popFloat(darg0)
                             .isOkNoMoreArgs())
@@ -158,19 +162,19 @@ struct OSCAdapter
                             addEventLocked((const clap_event_header *)&pev);
                         }
                     }
-                    else if (msg->match("/mnote").popFloat(darg0).popFloat(darg1).isOkNoMoreArgs())
+                    else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                     {
                         uint16_t et = CLAP_EVENT_NOTE_ON;
                         double velo = 0.0;
-                        if (darg1 > 0.0f)
+                        if (iarg1 > 0)
                         {
-                            velo = darg1 / 127;
+                            velo = iarg1 / 127.0;
                         }
                         else
                         {
                             et = CLAP_EVENT_NOTE_OFF;
                         }
-                        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)darg0, -1, velo);
+                        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)iarg0, -1, velo);
                         addEventLocked((const clap_event_header *)&nev);
                     }
                     else if (msg->match("/mnote/rel")
@@ -184,14 +188,14 @@ struct OSCAdapter
                     }
                     else
                     {
-                        if (onCustomMessage)
-                            onCustomMessage(msg);
+                        if (onUnhandledMessage)
+                            onUnhandledMessage(msg);
                     }
                 }
             }
         }
     }
-    std::function<void(oscpkt::Message *msg)> onCustomMessage;
+    std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;
