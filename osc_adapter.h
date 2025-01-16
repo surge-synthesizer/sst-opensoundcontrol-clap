@@ -62,14 +62,12 @@ struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
     {
-        onUnhandledMessage = [this](oscpkt::Message* msg)
-        {
-            std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl;
-        };
+        onUnhandledMessage = [this](oscpkt::Message *msg)
+        { std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl; };
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
-            std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
+            // std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
             for (size_t i = 0; i < paramsExtension->count(p); ++i)
             {
                 clap_param_info pinfo;
@@ -78,7 +76,8 @@ struct OSCAdapter
                     indexToClapParamInfo[i] = pinfo;
                     idToClapParamInfo[pinfo.id] = pinfo;
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    outfile << pinfo.name << " -> " << address << " range " << pinfo.min_value << " .. " << pinfo.max_value << "\n";
+                    // outfile << pinfo.name << " -> " << address << " range " << pinfo.min_value <<
+                    // " .. " << pinfo.max_value << "\n";
                     addressToClapInfo[address] = pinfo;
                 }
             }
@@ -150,9 +149,9 @@ struct OSCAdapter
                         }
                     }
                     else if (msg->match("/set_parameter")
-                            .popInt32(iarg0)
-                            .popFloat(darg0)
-                            .isOkNoMoreArgs())
+                                 .popInt32(iarg0)
+                                 .popFloat(darg0)
+                                 .isOkNoMoreArgs())
                     {
                         auto it = indexToClapParamInfo.find(iarg0);
                         if (it != indexToClapParamInfo.end())
