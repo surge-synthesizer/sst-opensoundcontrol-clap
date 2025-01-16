@@ -138,6 +138,7 @@ struct OSCAdapter
                     int32_t iarg1 = 0;
                     float darg0 = 0.0f;
                     float darg1 = 0.0f;
+                    // is it a named clap parameter?
                     auto mit = addressToClapInfo.find(msg->addressPattern());
                     if (mit != addressToClapInfo.end())
                     {
@@ -153,34 +154,23 @@ struct OSCAdapter
                                  .popFloat(darg0)
                                  .isOkNoMoreArgs())
                     {
-                        auto it = indexToClapParamInfo.find(iarg0);
-                        if (it != indexToClapParamInfo.end())
-                        {
-                            auto pev =
-                                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, darg0);
-                            addEventLocked((const clap_event_header *)&pev);
-                        }
+                        // indexed parameter
+                        handle_set_parameter(msg, iarg0, darg0);
                     }
                     else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                     {
-                        uint16_t et = CLAP_EVENT_NOTE_ON;
-                        double velo = 0.0;
-                        if (iarg1 > 0)
-                        {
-                            velo = iarg1 / 127.0;
-                        }
-                        else
-                        {
-                            et = CLAP_EVENT_NOTE_OFF;
-                        }
-                        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)iarg0, -1, velo);
-                        addEventLocked((const clap_event_header *)&nev);
+                        handle_mnote_msg(msg, iarg0, iarg1);
+                    }
+                    else if (msg->match("/fnote").popFloat(darg0).popInt32(iarg1).isOkNoMoreArgs())
+                    {
+                        handle_fnote_msg(msg, darg0, iarg1);
                     }
                     else if (msg->match("/mnote/rel")
                                  .popFloat(darg0)
                                  .popFloat(darg1)
                                  .isOkNoMoreArgs())
                     {
+                        
                         auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)darg0, -1,
                                                  darg1 / 127.0);
                         addEventLocked((const clap_event_header *)&nev);
@@ -193,6 +183,38 @@ struct OSCAdapter
                 }
             }
         }
+    }
+    void handle_set_parameter(oscpkt::Message *msg, int iarg0, float darg0)
+    {
+        auto it = indexToClapParamInfo.find(iarg0);
+        if (it != indexToClapParamInfo.end())
+        {
+            auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, darg0);
+            addEventLocked((const clap_event_header *)&pev);
+        }
+    }
+
+    void handle_fnote_msg(oscpkt::Message *msg, float darg0, int iarg1)
+    {
+        // float argument is Hz
+        // not implemented yet, but this would need to create clap note on
+        // and clap note pitch expression
+    }
+
+    void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1)
+    {
+        uint16_t et = CLAP_EVENT_NOTE_ON;
+        double velo = 0.0;
+        if (iarg1 > 0)
+        {
+            velo = iarg1 / 127.0;
+        }
+        else
+        {
+            et = CLAP_EVENT_NOTE_OFF;
+        }
+        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)iarg0, -1, velo);
+        addEventLocked((const clap_event_header *)&nev);
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::unique_ptr<std::thread> oscThread;
