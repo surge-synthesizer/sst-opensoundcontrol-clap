@@ -61,6 +61,10 @@ struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
     {
+        onCustomMessage = [this](oscpkt::Message* msg)
+        {
+            std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl;
+        };
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
