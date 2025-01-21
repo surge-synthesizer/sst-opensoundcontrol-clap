@@ -214,7 +214,15 @@ struct OSCAdapter
                 }
                 else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, iarg1);
+                    handle_fnote_msg(msg, farg0, iarg1, std::nullopt);
+                }
+                else if (msg->match("/fnote")
+                             .popFloat(farg0)
+                             .popInt32(iarg1)
+                             .popInt32(iarg2)
+                             .isOkNoMoreArgs())
+                {
+                    handle_fnote_msg(msg, farg0, iarg1, iarg2);
                 }
                 else if (msg->match("/mnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
@@ -336,7 +344,7 @@ struct OSCAdapter
         }
     }
 
-    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1)
+    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
     {
         farg0 = std::clamp(farg0, 8.175798915643707f, 12543.853951415975f);
         double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
@@ -352,9 +360,10 @@ struct OSCAdapter
         {
             et = CLAP_EVENT_NOTE_OFF;
         }
-        auto nev = makeNoteEvent(0, et, -1, 0, key, -1, velo);
+        int nid = iarg2.value_or(-1);
+        auto nev = makeNoteEvent(0, et, -1, 0, key, nid, velo);
         auto expev =
-            makeNoteExpressionEvent(0, -1, -1, key, -1, CLAP_NOTE_EXPRESSION_TUNING, detune);
+            makeNoteExpressionEvent(0, -1, -1, key, nid, CLAP_NOTE_EXPRESSION_TUNING, detune);
         std::lock_guard<choc::threading::SpinLock> guard(spinLock);
         eventList.push((const clap_event_header *)&nev);
         eventList.push((const clap_event_header *)&expev);
@@ -372,9 +381,7 @@ struct OSCAdapter
         {
             et = CLAP_EVENT_NOTE_OFF;
         }
-        int32_t nid = -1;
-        if (iarg2)
-            nid = *iarg2;
+        int32_t nid = iarg2.value_or(-1);
         auto nev = makeNoteEvent(0, et, -1, 0, iarg0, nid, velo);
         addEventLocked((const clap_event_header *)&nev);
     }
