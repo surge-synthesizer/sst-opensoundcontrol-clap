@@ -242,6 +242,14 @@ struct OSCAdapter
                     {
                         handle_mnote_msg(msg, iarg0, iarg1);
                     }
+                    else if (msg->match("/1/push1").popFloat(farg0).isOkNoMoreArgs())
+                    {
+                        handle_mnote_msg(msg, 60, farg0);
+                    }
+                    else if (msg->match("/1/push2").popFloat(farg0).isOkNoMoreArgs())
+                    {
+                        handle_mnote_msg(msg, 67, farg0);
+                    }
                     else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
                     {
                         handle_fnote_msg(msg, farg0, iarg1);
