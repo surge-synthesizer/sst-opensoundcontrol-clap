@@ -220,6 +220,7 @@ struct OSCAdapter
                     {
                         if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
                         {
+                            farg0 = std::clamp(farg0, 0.0f, 1.0f);
                             double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
                                                          mit->second.max_value);
                             auto pev =
