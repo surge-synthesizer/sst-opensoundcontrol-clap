@@ -3,6 +3,7 @@
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/helpers/event-list.hh"
+#include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <mutex>
@@ -58,6 +59,16 @@ inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port
     return nev;
 }
 
+/* Remaps a value from a source range to a target range. Explodes if source range has zero size.
+ */
+template <typename Type>
+Type mapvalue(Type sourceValue, Type sourceRangeMin, Type sourceRangeMax, Type targetRangeMin,
+              Type targetRangeMax)
+{
+    return targetRangeMin + ((targetRangeMax - targetRangeMin) * (sourceValue - sourceRangeMin)) /
+                                (sourceRangeMax - sourceRangeMin);
+}
+
 struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p) : targetPlugin(p)
@@ -67,7 +78,7 @@ struct OSCAdapter
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
-            // std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
+            std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
             for (size_t i = 0; i < paramsExtension->count(p); ++i)
             {
                 clap_param_info pinfo;
@@ -76,21 +87,32 @@ struct OSCAdapter
                     indexToClapParamInfo[i] = pinfo;
                     idToClapParamInfo[pinfo.id] = pinfo;
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    // outfile << pinfo.name << " -> " << address << " range " << pinfo.min_value <<
-                    // " .. " << pinfo.max_value << "\n";
+                    outfile << pinfo.name << " <- " << address << " [range " << pinfo.min_value
+                            << " .. " << pinfo.max_value << "]\n";
                     addressToClapInfo[address] = pinfo;
+                    idToAddress[pinfo.id] = address;
+                    latestParamValues[pinfo.id] = pinfo.default_value;
                 }
             }
+            // for testing with TouchOsc 
+            addressToClapInfo["/2/fader1"] = addressToClapInfo["/param/main_level"];
+            addressToClapInfo["/2/fader2"] = addressToClapInfo["/param/main_pan"];
+            // idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
         }
     }
-    std::string makeOscAddressFromParameterName(std::string parname)
+    std::string makeOscAddressFromParameterName(const std::string &parname)
     {
-        auto lc = choc::text::toLowerCase(parname);
-        lc = choc::text::replace(lc, " ", "_");
-        return lc;
+        std::string result = parname;
+        for (auto &c : result)
+        {
+            c = std::tolower(c);
+            if (c == ' ')
+                c = '_';
+        }
+        return result;
     }
     const clap_input_events *getInputEventQueue() { return eventList.clapInputEvents(); }
-    clap_output_events *getOutputEventQueue();
+    const clap_output_events *getOutputEventQueue() { return eventListIncoming.clapOutputEvents(); }
 
     void startWith(uint32_t inputPort, uint32_t outputPort)
     {
@@ -106,14 +128,65 @@ struct OSCAdapter
             oscThread = nullptr;
         }
     }
+
+    void handleOutputMessages(oscpkt::UdpSocket *socket, oscpkt::PacketWriter *pw)
+    {
+        // Locking here is very nasty as we are doing memory allocations, network traffic etc
+        // and the audio thread might potentially have to wait but this shall suffice for some initial testing
+        if (spinLock.try_lock())
+        {
+            auto evcount = eventListIncoming.size();
+            if (evcount == 0)
+            {
+                spinLock.unlock();
+                return;
+            }
+                
+            for (size_t i = 0; i < evcount; ++i)
+            {
+                auto hdr = eventListIncoming.get(i);
+                if (hdr->type == CLAP_EVENT_PARAM_VALUE)
+                {
+                    auto pev = (const clap_event_param_value *)hdr;
+                    latestParamValues[pev->param_id] = pev->value;
+                }
+                else if (hdr->type == CLAP_EVENT_PARAM_GESTURE_END)
+                {
+                    auto pev = (const clap_event_param_gesture *)hdr;
+                    oscpkt::Message repl;
+                    auto it = latestParamValues.find(pev->param_id);
+                    if (it != latestParamValues.end())
+                    {
+                        const auto &addr = idToAddress[pev->param_id];
+                        repl.init(addr).pushFloat(it->second);
+                        pw->init().addMessage(repl);
+                        socket->sendPacketTo(pw->packetData(), pw->packetSize(),
+                                             socket->packetOrigin());
+                    }
+                }
+            }
+            eventListIncoming.clear();
+            spinLock.unlock();
+        }
+    }
+
     void runOscThread(uint32_t inputPort, uint32_t outputPort)
     {
         using namespace oscpkt;
-        UdpSocket sock;
-        sock.bindTo(inputPort);
-        if (!sock.isOk())
+        UdpSocket receiveSock;
+        receiveSock.bindTo(inputPort);
+        UdpSocket sendSock;
+
+        sendSock.connectTo("localhost", outputPort);
+        if (!receiveSock.isOk())
         {
-            std::cout << "Error opening port " << inputPort << ": " << sock.errorMessage() << "\n";
+            std::cout << "Error opening port " << inputPort << ": " << receiveSock.errorMessage()
+                      << "\n";
+            return;
+        }
+        if (!sendSock.isOk())
+        {
+            std::cout << "send socket not ok\n";
             return;
         }
 
@@ -123,14 +196,15 @@ struct OSCAdapter
 
         while (!oscThreadShouldStop)
         {
-            if (!sock.isOk())
+            handleOutputMessages(&sendSock, &pw);
+            if (!receiveSock.isOk())
             {
                 break;
             }
 
-            if (sock.receiveNextPacket(30))
+            if (receiveSock.receiveNextPacket(30))
             {
-                pr.init(sock.packetData(), sock.packetSize());
+                pr.init(receiveSock.packetData(), receiveSock.packetSize());
                 oscpkt::Message *msg = nullptr;
                 while (pr.isOk() && (msg = pr.popMessage()) != nullptr)
                 {
@@ -138,21 +212,25 @@ struct OSCAdapter
                     int32_t iarg1 = 0;
                     float farg0 = 0.0f;
                     float farg1 = 0.0f;
+
                     // is it a named clap parameter?
                     auto mit = addressToClapInfo.find(msg->addressPattern());
                     if (mit != addressToClapInfo.end())
                     {
                         if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
                         {
+                            double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
+                                                         mit->second.max_value);
                             auto pev =
-                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, farg0);
+                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val);
                             addEventLocked((const clap_event_header *)&pev);
                         }
                     }
-                    else if (msg->match("/set_parameter")
-                                 .popInt32(iarg0)
-                                 .popFloat(farg0)
-                                 .isOkNoMoreArgs())
+
+                    if (msg->match("/set_parameter")
+                            .popInt32(iarg0)
+                            .popFloat(farg0)
+                            .isOkNoMoreArgs())
                     {
                         // indexed parameter
                         handle_set_parameter(msg, iarg0, farg0);
@@ -220,11 +298,14 @@ struct OSCAdapter
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;
+    clap::helpers::EventList eventListIncoming;
     const clap_plugin *targetPlugin = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
     std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
     std::unordered_map<clap_id, clap_param_info> idToClapParamInfo;
     std::unordered_map<std::string, clap_param_info> addressToClapInfo;
+    std::unordered_map<clap_id, std::string> idToAddress;
+    std::unordered_map<clap_id, float> latestParamValues;
     choc::threading::SpinLock spinLock;
 
   private:
