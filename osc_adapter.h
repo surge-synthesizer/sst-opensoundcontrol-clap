@@ -145,6 +145,69 @@ struct OSCAdapter
             oscThread = nullptr;
         }
     }
+    void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
+    {
+        if (socket.receiveNextPacket(30))
+        {
+            pr.init(socket.packetData(), socket.packetSize());
+            oscpkt::Message *msg = nullptr;
+            while (pr.isOk() && (msg = pr.popMessage()) != nullptr)
+            {
+                int32_t iarg0 = 0;
+                int32_t iarg1 = 0;
+                float farg0 = 0.0f;
+                float farg1 = 0.0f;
+
+                // is it a named clap parameter?
+                auto mit = addressToClapInfo.find(msg->addressPattern());
+                if (mit != addressToClapInfo.end())
+                {
+                    if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
+                    {
+                        farg0 = std::clamp(farg0, 0.0f, 1.0f);
+                        double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
+                                                     mit->second.max_value);
+                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val);
+                        addEventLocked((const clap_event_header *)&pev);
+                    }
+                }
+
+                if (msg->match("/set_parameter").popInt32(iarg0).popFloat(farg0).isOkNoMoreArgs())
+                {
+                    // indexed parameter
+                    handle_set_parameter(msg, iarg0, farg0);
+                }
+                else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
+                {
+                    handle_mnote_msg(msg, iarg0, iarg1);
+                }
+                else if (msg->match("/1/push1").popFloat(farg0).isOkNoMoreArgs())
+                {
+                    handle_mnote_msg(msg, 60, farg0);
+                }
+                else if (msg->match("/1/push2").popFloat(farg0).isOkNoMoreArgs())
+                {
+                    handle_mnote_msg(msg, 67, farg0);
+                }
+                else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
+                {
+                    handle_fnote_msg(msg, farg0, iarg1);
+                }
+                else if (msg->match("/mnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
+                {
+
+                    auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
+                                             farg1 / 127.0);
+                    addEventLocked((const clap_event_header *)&nev);
+                }
+                else
+                {
+                    if (onUnhandledMessage)
+                        onUnhandledMessage(msg);
+                }
+            }
+        }
+    }
 
     void handleOutputMessages(oscpkt::UdpSocket *socket, oscpkt::PacketWriter *pw)
     {
@@ -228,74 +291,7 @@ struct OSCAdapter
             {
                 break;
             }
-
-            if (receiveSock.receiveNextPacket(30))
-            {
-                pr.init(receiveSock.packetData(), receiveSock.packetSize());
-                oscpkt::Message *msg = nullptr;
-                while (pr.isOk() && (msg = pr.popMessage()) != nullptr)
-                {
-                    int32_t iarg0 = 0;
-                    int32_t iarg1 = 0;
-                    float farg0 = 0.0f;
-                    float farg1 = 0.0f;
-
-                    // is it a named clap parameter?
-                    auto mit = addressToClapInfo.find(msg->addressPattern());
-                    if (mit != addressToClapInfo.end())
-                    {
-                        if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
-                        {
-                            farg0 = std::clamp(farg0, 0.0f, 1.0f);
-                            double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
-                                                         mit->second.max_value);
-                            auto pev =
-                                makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val);
-                            addEventLocked((const clap_event_header *)&pev);
-                        }
-                    }
-
-                    if (msg->match("/set_parameter")
-                            .popInt32(iarg0)
-                            .popFloat(farg0)
-                            .isOkNoMoreArgs())
-                    {
-                        // indexed parameter
-                        handle_set_parameter(msg, iarg0, farg0);
-                    }
-                    else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
-                    {
-                        handle_mnote_msg(msg, iarg0, iarg1);
-                    }
-                    else if (msg->match("/1/push1").popFloat(farg0).isOkNoMoreArgs())
-                    {
-                        handle_mnote_msg(msg, 60, farg0);
-                    }
-                    else if (msg->match("/1/push2").popFloat(farg0).isOkNoMoreArgs())
-                    {
-                        handle_mnote_msg(msg, 67, farg0);
-                    }
-                    else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
-                    {
-                        handle_fnote_msg(msg, farg0, iarg1);
-                    }
-                    else if (msg->match("/mnote/rel")
-                                 .popFloat(farg0)
-                                 .popFloat(farg1)
-                                 .isOkNoMoreArgs())
-                    {
-
-                        auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
-                                                 farg1 / 127.0);
-                        addEventLocked((const clap_event_header *)&nev);
-                    }
-                    else
-                    {
-                        if (onUnhandledMessage)
-                            onUnhandledMessage(msg);
-                    }
-                }
-            }
+            handleInputMessages(receiveSock, pr);
         }
     }
     void handle_set_parameter(oscpkt::Message *msg, int iarg0, float farg0)
