@@ -94,7 +94,7 @@ struct OSCAdapter
                     latestParamValues[pinfo.id] = pinfo.default_value;
                 }
             }
-            // for testing with TouchOsc 
+            // for testing with TouchOsc
             addressToClapInfo["/2/fader1"] = addressToClapInfo["/param/main_level"];
             addressToClapInfo["/2/fader2"] = addressToClapInfo["/param/main_pan"];
             // idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
@@ -132,7 +132,8 @@ struct OSCAdapter
     void handleOutputMessages(oscpkt::UdpSocket *socket, oscpkt::PacketWriter *pw)
     {
         // Locking here is very nasty as we are doing memory allocations, network traffic etc
-        // and the audio thread might potentially have to wait but this shall suffice for some initial testing
+        // and the audio thread might potentially have to wait but this shall suffice for some
+        // initial testing
         if (spinLock.try_lock())
         {
             auto evcount = eventListIncoming.size();
@@ -141,7 +142,7 @@ struct OSCAdapter
                 spinLock.unlock();
                 return;
             }
-                
+
             for (size_t i = 0; i < evcount; ++i)
             {
                 auto hdr = eventListIncoming.get(i);
@@ -274,9 +275,35 @@ struct OSCAdapter
 
     void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1)
     {
-        // float argument is Hz
-        // not implemented yet, but this would need to create clap note on
-        // and clap note pitch expression
+        double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
+        int key = (int)floatpitch;
+        double detune = floatpitch - key;
+        uint16_t et = CLAP_EVENT_NOTE_ON;
+        double velo = 0.0;
+        if (iarg1 > 0)
+        {
+            velo = iarg1 / 127.0;
+        }
+        else
+        {
+            et = CLAP_EVENT_NOTE_OFF;
+        }
+        auto nev = makeNoteEvent(0, et, -1, 0, key, -1, velo);
+        clap_event_note_expression expev;
+        expev.header.flags = 0;
+        expev.header.size = sizeof(clap_event_note_expression);
+        expev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        expev.header.time = 0;
+        expev.header.type = CLAP_EVENT_NOTE_EXPRESSION;
+        expev.port_index = -1;
+        expev.channel = -1;
+        expev.key = key;
+        expev.note_id = -1;
+        expev.expression_id = CLAP_NOTE_EXPRESSION_TUNING;
+        expev.value = detune;
+        std::lock_guard<choc::threading::SpinLock> guard(spinLock);
+        eventList.push((const clap_event_header *)&nev);
+        eventList.push((const clap_event_header *)&expev);
     }
 
     void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1)
