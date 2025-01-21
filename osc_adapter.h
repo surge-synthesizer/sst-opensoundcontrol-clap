@@ -238,8 +238,14 @@ struct OSCAdapter
                              .popFloat(farg0)
                              .isOkNoMoreArgs())
                 {
-                    auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
-                    addEventLocked((const clap_event_header *)&expev);
+                    if (iarg1 >= CLAP_NOTE_EXPRESSION_VOLUME &&
+                        iarg1 <= CLAP_NOTE_EXPRESSION_PRESSURE)
+                    {
+                        // expression types have varying allowed ranges, should clamp to those here 
+                        // or in the event maker function
+                        auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
+                        addEventLocked((const clap_event_header *)&expev);
+                    }
                 }
                 else
                 {
