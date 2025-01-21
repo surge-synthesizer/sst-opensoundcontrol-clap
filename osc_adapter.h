@@ -338,7 +338,7 @@ struct OSCAdapter
 
     void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1)
     {
-        farg0 = std::clamp(farg0, 8.0f, 12000.0f);
+        farg0 = std::clamp(farg0, 8.175798915643707f, 12543.853951415975f);
         double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
         int key = (int)floatpitch;
         double detune = floatpitch - key;
@@ -353,18 +353,8 @@ struct OSCAdapter
             et = CLAP_EVENT_NOTE_OFF;
         }
         auto nev = makeNoteEvent(0, et, -1, 0, key, -1, velo);
-        clap_event_note_expression expev;
-        expev.header.flags = 0;
-        expev.header.size = sizeof(clap_event_note_expression);
-        expev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-        expev.header.time = 0;
-        expev.header.type = CLAP_EVENT_NOTE_EXPRESSION;
-        expev.port_index = -1;
-        expev.channel = -1;
-        expev.key = key;
-        expev.note_id = -1;
-        expev.expression_id = CLAP_NOTE_EXPRESSION_TUNING;
-        expev.value = detune;
+        auto expev =
+            makeNoteExpressionEvent(0, -1, -1, key, -1, CLAP_NOTE_EXPRESSION_TUNING, detune);
         std::lock_guard<choc::threading::SpinLock> guard(spinLock);
         eventList.push((const clap_event_header *)&nev);
         eventList.push((const clap_event_header *)&expev);
