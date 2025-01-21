@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <thread>
 #include <memory>
@@ -66,11 +67,30 @@ inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port
     return nev;
 }
 
+inline clap_event_note_expression makeNoteExpressionEvent(uint32_t time, int16_t port,
+                                                          int16_t channel, int16_t key, int32_t nid,
+                                                          clap_note_expression eid, double amount)
+{
+    clap_event_note_expression nexp;
+    nexp.header.time = time;
+    nexp.header.flags = 0;
+    nexp.header.size = sizeof(clap_event_note_expression);
+    nexp.header.type = CLAP_EVENT_NOTE_EXPRESSION;
+    nexp.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    nexp.expression_id = eid;
+    nexp.value = amount;
+    nexp.port_index = port;
+    nexp.channel = channel;
+    nexp.key = key;
+    nexp.note_id = nid;
+    return nexp;
+}
+
 /* Remaps a value from a source range to a target range. Explodes if source range has zero size.
  */
 template <typename Type>
-Type mapvalue(Type sourceValue, Type sourceRangeMin, Type sourceRangeMax, Type targetRangeMin,
-              Type targetRangeMax)
+inline Type mapvalue(Type sourceValue, Type sourceRangeMin, Type sourceRangeMax,
+                     Type targetRangeMin, Type targetRangeMax)
 {
     return targetRangeMin + ((targetRangeMax - targetRangeMin) * (sourceValue - sourceRangeMin)) /
                                 (sourceRangeMax - sourceRangeMin);
@@ -85,7 +105,7 @@ struct OSCAdapter
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
-            std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
+            // std::ofstream outfile(R"(C:\develop\six-sines\param_addresses.txt)");
             for (size_t i = 0; i < paramsExtension->count(p); ++i)
             {
                 clap_param_info pinfo;
@@ -94,8 +114,8 @@ struct OSCAdapter
                     indexToClapParamInfo[i] = pinfo;
                     idToClapParamInfo[pinfo.id] = pinfo;
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    outfile << pinfo.name << " <- " << address << " [range " << pinfo.min_value
-                            << " .. " << pinfo.max_value << "]\n";
+                    // outfile << pinfo.name << " <- " << address << " [range " << pinfo.min_value
+                    //        << " .. " << pinfo.max_value << "]\n";
                     addressToClapInfo[address] = pinfo;
                     idToAddress[pinfo.id] = address;
                     latestParamValues[pinfo.id] = pinfo.default_value;
@@ -104,7 +124,8 @@ struct OSCAdapter
             // for testing with TouchOsc
             addressToClapInfo["/2/fader1"] = addressToClapInfo["/param/main_level"];
             addressToClapInfo["/2/fader2"] = addressToClapInfo["/param/main_pan"];
-            // idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
+// idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
+#ifdef TEST_CUSTOM_STRING_MESSAGES
             osc_clap_string_event ev;
             ev.header.size = sizeof(osc_clap_string_event);
             ev.header.type = 666;
@@ -115,6 +136,7 @@ struct OSCAdapter
             eventListIncoming.push((const clap_event_header *)&ev);
             strcpy(ev.bytes, targetPlugin->desc->name);
             eventListIncoming.push((const clap_event_header *)&ev);
+#endif
         }
     }
     std::string makeOscAddressFromParameterName(const std::string &parname)
@@ -155,6 +177,7 @@ struct OSCAdapter
             {
                 int32_t iarg0 = 0;
                 int32_t iarg1 = 0;
+                int32_t iarg2 = 0;
                 float farg0 = 0.0f;
                 float farg1 = 0.0f;
 
@@ -179,15 +202,15 @@ struct OSCAdapter
                 }
                 else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, iarg0, iarg1);
+                    handle_mnote_msg(msg, iarg0, iarg1, std::nullopt);
                 }
-                else if (msg->match("/1/push1").popFloat(farg0).isOkNoMoreArgs())
+                else if (msg->match("/mnote")
+                             .popInt32(iarg0)
+                             .popInt32(iarg1)
+                             .popInt32(iarg2)
+                             .isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, 60, farg0);
-                }
-                else if (msg->match("/1/push2").popFloat(farg0).isOkNoMoreArgs())
-                {
-                    handle_mnote_msg(msg, 67, farg0);
+                    handle_mnote_msg(msg, iarg0, iarg1, iarg2);
                 }
                 else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
@@ -199,6 +222,15 @@ struct OSCAdapter
                     auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
                                              farg1 / 127.0);
                     addEventLocked((const clap_event_header *)&nev);
+                }
+                else if (msg->match("/nexp")
+                             .popInt32(iarg0)
+                             .popInt32(iarg1)
+                             .popFloat(farg0)
+                             .isOkNoMoreArgs())
+                {
+                    auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
+                    addEventLocked((const clap_event_header *)&expev);
                 }
                 else
                 {
@@ -338,7 +370,7 @@ struct OSCAdapter
         eventList.push((const clap_event_header *)&expev);
     }
 
-    void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1)
+    void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1, std::optional<int> iarg2)
     {
         uint16_t et = CLAP_EVENT_NOTE_ON;
         double velo = 0.0;
@@ -350,7 +382,10 @@ struct OSCAdapter
         {
             et = CLAP_EVENT_NOTE_OFF;
         }
-        auto nev = makeNoteEvent(0, et, -1, 0, (int16_t)iarg0, -1, velo);
+        int32_t nid = -1;
+        if (iarg2)
+            nid = *iarg2;
+        auto nev = makeNoteEvent(0, et, -1, 0, iarg0, nid, velo);
         addEventLocked((const clap_event_header *)&nev);
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
