@@ -190,7 +190,8 @@ struct OSCAdapter
                         farg0 = std::clamp(farg0, 0.0f, 1.0f);
                         double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
                                                      mit->second.max_value);
-                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val);
+                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val,
+                                                           mit->second.cookie);
                         addEventLocked((const clap_event_header *)&pev);
                     }
                 }
@@ -339,7 +340,8 @@ struct OSCAdapter
         auto it = indexToClapParamInfo.find(iarg0);
         if (it != indexToClapParamInfo.end())
         {
-            auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0);
+            auto pev =
+                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
             addEventLocked((const clap_event_header *)&pev);
         }
     }
