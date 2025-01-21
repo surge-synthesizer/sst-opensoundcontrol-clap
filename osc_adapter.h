@@ -3,6 +3,7 @@
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/helpers/event-list.hh"
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
@@ -276,6 +277,7 @@ struct OSCAdapter
 
     void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1)
     {
+        farg0 = std::clamp(farg0, 8.0f, 12000.0f);
         double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
         int key = (int)floatpitch;
         double detune = floatpitch - key;
