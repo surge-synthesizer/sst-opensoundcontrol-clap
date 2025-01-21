@@ -21,6 +21,12 @@
 namespace sst::osc_adapter
 {
 
+struct osc_clap_string_event
+{
+    clap_event_header header;
+    char bytes[256];
+};
+
 inline clap_event_param_value makeParameterValueEvent(uint32_t time, int16_t port, int16_t channel,
                                                       int16_t key, int32_t note_id,
                                                       clap_id param_id, double value,
@@ -99,6 +105,16 @@ struct OSCAdapter
             addressToClapInfo["/2/fader1"] = addressToClapInfo["/param/main_level"];
             addressToClapInfo["/2/fader2"] = addressToClapInfo["/param/main_pan"];
             // idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
+            osc_clap_string_event ev;
+            ev.header.size = sizeof(osc_clap_string_event);
+            ev.header.type = 666;
+            ev.header.time = 0;
+            ev.header.flags = 0;
+            ev.header.space_id = 42;
+            strcpy(ev.bytes, targetPlugin->desc->id);
+            eventListIncoming.push((const clap_event_header *)&ev);
+            strcpy(ev.bytes, targetPlugin->desc->name);
+            eventListIncoming.push((const clap_event_header *)&ev);
         }
     }
     std::string makeOscAddressFromParameterName(const std::string &parname)
@@ -147,6 +163,15 @@ struct OSCAdapter
             for (size_t i = 0; i < evcount; ++i)
             {
                 auto hdr = eventListIncoming.get(i);
+                if (hdr->space_id == 42 && hdr->type == 666)
+                {
+                    auto sevt = (osc_clap_string_event *)hdr;
+                    oscpkt::Message repl;
+                    repl.init("/clap_string").pushStr(sevt->bytes);
+                    pw->init().addMessage(repl);
+                    socket->sendPacketTo(pw->packetData(), pw->packetSize(),
+                                         socket->packetOrigin());
+                }
                 if (hdr->type == CLAP_EVENT_PARAM_VALUE)
                 {
                     auto pev = (const clap_event_param_value *)hdr;
