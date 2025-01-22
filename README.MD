@@ -8,6 +8,8 @@ There are various issues :
 - A spinlock is used (from the Choc library) to protect the Clap event lists
 - Dependency on the Clap C++ helper library (for the event list). Perhaps not a big deal since
 C++ Clap plugins are likely to use that anyway.
-- Not many OSC message types handled
+- OSC addresses for plugin parameters are auto-generated from the plugin parameter display names, which
+should not be considered stable. Hopefully the Clap plugin format itself gets an extension for this at some point or some other solution is implemented.
+- Not many OSC message types handled (depending on the definition of "many")
 - Error handling is not adequate
 - No simple example Clap plugin that shows how to wire up with this
