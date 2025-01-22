@@ -188,6 +188,14 @@ struct OSCAdapter
             oscThread = nullptr;
         }
     }
+    void postEventForOscOutput(const clap_event_header *ev)
+    {
+        if (wantEvent(ev->type))
+        {
+            std::lock_guard<choc::threading::SpinLock> locker(spinLock);
+            eventListIncoming.push(ev);
+        }
+    }
     void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
     {
         if (socket.receiveNextPacket(30))
@@ -402,7 +410,7 @@ struct OSCAdapter
             // checking that the receiving socket actually throttles, and it does
             // std::chrono::time_point t = std::chrono::system_clock::now();
             // time_t t_time_t = std::chrono::system_clock::to_time_t(t);
-            //std::cout << "time " << t_time_t << std::endl;
+            // std::cout << "time " << t_time_t << std::endl;
             handleOutputMessages(&sendSock, &pw);
             if (!receiveSock.isOk())
             {

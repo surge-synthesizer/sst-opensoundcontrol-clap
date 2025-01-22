@@ -13,3 +13,4 @@ should not be considered stable. Hopefully the Clap plugin format itself gets an
 - Not many OSC message types handled (depending on the definition of "many")
 - Error handling is not adequate
 - No simple example Clap plugin that shows how to wire up with this
+- No automated tests. (Tricky to do anyway because this would typically be used with external hardware/network I/O.)
