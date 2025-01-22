@@ -28,6 +28,21 @@ struct osc_clap_string_event
     char bytes[256];
 };
 
+inline clap_event_midi makeMIDI1Event(uint32_t time, int16_t port, uint8_t b0, uint8_t b1, uint8_t b2)
+{
+    clap_event_midi mev;
+    mev.header.time = 0;
+    mev.header.flags = 0;
+    mev.header.size = sizeof(clap_event_midi);
+    mev.header.type = CLAP_EVENT_MIDI;
+    mev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    mev.port_index = -1;
+    mev.data[0] = b0;
+    mev.data[1] = b1;
+    mev.data[2] = b2;
+    return mev;
+}
+
 inline clap_event_param_value makeParameterValueEvent(uint32_t time, int16_t port, int16_t channel,
                                                       int16_t key, int32_t note_id,
                                                       clap_id param_id, double value,
@@ -201,6 +216,16 @@ struct OSCAdapter
                     // indexed parameter
                     handle_set_parameter(msg, iarg0, farg0);
                 }
+                else if (msg->match("/allsoundoff").isOkNoMoreArgs())
+                {
+                    auto mev = makeMIDI1Event(0, -1, 176, 120, 0);
+                    addEventLocked((const clap_event_header *)&mev);
+                }
+                else if (msg->match("/allnotesoff").isOkNoMoreArgs())
+                {
+                    auto mev = makeMIDI1Event(0, -1, 176, 123, 0);
+                    addEventLocked((const clap_event_header *)&mev);
+                }
                 else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
                     handle_mnote_msg(msg, iarg0, iarg1, std::nullopt);
@@ -241,7 +266,7 @@ struct OSCAdapter
                     if (iarg1 >= CLAP_NOTE_EXPRESSION_VOLUME &&
                         iarg1 <= CLAP_NOTE_EXPRESSION_PRESSURE)
                     {
-                        // expression types have varying allowed ranges, should clamp to those here 
+                        // expression types have varying allowed ranges, should clamp to those here
                         // or in the event maker function
                         auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
                         addEventLocked((const clap_event_header *)&expev);
