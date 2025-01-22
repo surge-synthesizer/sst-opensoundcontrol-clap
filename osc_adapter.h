@@ -15,8 +15,7 @@
 #include <memory>
 #include <iostream>
 #include <unordered_map>
-#include "choc/text/choc_StringUtilities.h"
-#include "choc/threading/choc_SpinLock.h"
+#include "choc_SpinLock.h"
 #include "clap/stream.h"
 #include "oscpkt.hh"
 #include "udp.hh"
