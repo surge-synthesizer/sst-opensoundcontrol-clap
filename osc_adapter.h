@@ -2,6 +2,7 @@
 #include "clap/clap.h"
 #include "clap/events.h"
 #include "clap/ext/params.h"
+#include "clap/ext/state.h"
 #include "clap/helpers/event-list.hh"
 #include <algorithm>
 #include <cctype>
@@ -16,6 +17,7 @@
 #include <unordered_map>
 #include "choc/text/choc_StringUtilities.h"
 #include "choc/threading/choc_SpinLock.h"
+#include "clap/stream.h"
 #include "oscpkt.hh"
 #include "udp.hh"
 
@@ -28,7 +30,8 @@ struct osc_clap_string_event
     char bytes[256];
 };
 
-inline clap_event_midi makeMIDI1Event(uint32_t time, int16_t port, uint8_t b0, uint8_t b1, uint8_t b2)
+inline clap_event_midi makeMIDI1Event(uint32_t time, int16_t port, uint8_t b0, uint8_t b1,
+                                      uint8_t b2)
 {
     clap_event_midi mev;
     mev.header.time = time;
@@ -113,10 +116,14 @@ inline Type mapvalue(Type sourceValue, Type sourceRangeMin, Type sourceRangeMax,
 
 struct OSCAdapter
 {
-    OSCAdapter(const clap_plugin *p) : targetPlugin(p)
+    OSCAdapter(const clap_plugin *p, const clap_host *h) : targetPlugin(p), clapHost(h)
     {
+        // std::endl is usually considered sus, but here we actually want to flush to the output as
+        // soon as possible
         onUnhandledMessage = [this](oscpkt::Message *msg)
         { std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl; };
+        onMainThread = []() { std::cout << "osc-adapter got main thread callback" << std::endl; };
+        stateExtension = (clap_plugin_state *)p->get_extension(p, CLAP_EXT_STATE);
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
         {
@@ -226,6 +233,10 @@ struct OSCAdapter
                     auto mev = makeMIDI1Event(0, -1, 176, 123, 0);
                     addEventLocked((const clap_event_header *)&mev);
                 }
+                else if (msg->match("/request_state").isOkNoMoreArgs())
+                {
+                    handle_state_request();
+                }
                 else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
                     handle_mnote_msg(msg, iarg0, iarg1, std::nullopt);
@@ -280,7 +291,33 @@ struct OSCAdapter
             }
         }
     }
-
+    void handle_state_request()
+    {
+        if (!(stateExtension && clapHost))
+            return;
+        onMainThread = [this]()
+        {
+            clap_ostream os;
+            int64_t bytesWritten = 0;
+            os.ctx = &bytesWritten;
+            // returns the number of bytes written; -1 on write error
+            // int64_t(CLAP_ABI *write)(const struct clap_ostream *stream, const void *buffer,
+            // uint64_t size);
+            os.write = [](const clap_ostream *stream, const void *buffer, uint64_t size)
+            {
+                auto i = (int64_t *)stream->ctx;
+                *i += size;
+                return (int64_t)size;
+            };
+            if (stateExtension->save(targetPlugin, &os))
+            {
+                std::cout << "state size is " << bytesWritten << " bytes" << std::endl;
+            }
+            else
+                std::cout << "plugin did not save state" << std::endl;
+        };
+        clapHost->request_callback(clapHost);
+    }
     void handleOutputMessages(oscpkt::UdpSocket *socket, oscpkt::PacketWriter *pw)
     {
         // Locking here is very nasty as we are doing memory allocations, network traffic etc
@@ -419,12 +456,15 @@ struct OSCAdapter
         addEventLocked((const clap_event_header *)&nev);
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
+    std::function<void()> onMainThread;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
     clap::helpers::EventList eventList;
     clap::helpers::EventList eventListIncoming;
     const clap_plugin *targetPlugin = nullptr;
+    const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
+    clap_plugin_state *stateExtension = nullptr;
     std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
     std::unordered_map<clap_id, clap_param_info> idToClapParamInfo;
     std::unordered_map<std::string, clap_param_info> addressToClapInfo;
