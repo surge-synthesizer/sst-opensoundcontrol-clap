@@ -10,3 +10,4 @@ There are various issues :
 C++ Clap plugins are likely to use that anyway.
 - Not many OSC message types handled
 - Error handling is not adequate
+- No simple example Clap plugin that shows how to wire up with this
