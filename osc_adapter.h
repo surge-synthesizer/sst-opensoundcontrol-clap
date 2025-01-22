@@ -344,6 +344,11 @@ struct OSCAdapter
                     socket->sendPacketTo(pw->packetData(), pw->packetSize(),
                                          socket->packetOrigin());
                 }
+                if (hdr->type == CLAP_EVENT_NOTE_END)
+                {
+                    auto nev = (clap_event_note *)hdr;
+                    std::cout << "got note end event " << nev->key << std::endl;
+                }
                 if (hdr->type == CLAP_EVENT_PARAM_VALUE)
                 {
                     auto pev = (const clap_event_param_value *)hdr;
@@ -454,6 +459,10 @@ struct OSCAdapter
         int32_t nid = iarg2.value_or(-1);
         auto nev = makeNoteEvent(0, et, -1, 0, iarg0, nid, velo);
         addEventLocked((const clap_event_header *)&nev);
+    }
+    bool wantEvent(int32_t eventType) const
+    {
+        return eventType == CLAP_EVENT_PARAM_VALUE || eventType == CLAP_EVENT_PARAM_GESTURE_END;
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::function<void()> onMainThread;
