@@ -31,12 +31,12 @@ struct osc_clap_string_event
 inline clap_event_midi makeMIDI1Event(uint32_t time, int16_t port, uint8_t b0, uint8_t b1, uint8_t b2)
 {
     clap_event_midi mev;
-    mev.header.time = 0;
+    mev.header.time = time;
     mev.header.flags = 0;
     mev.header.size = sizeof(clap_event_midi);
     mev.header.type = CLAP_EVENT_MIDI;
     mev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-    mev.port_index = -1;
+    mev.port_index = port;
     mev.data[0] = b0;
     mev.data[1] = b1;
     mev.data[2] = b2;
