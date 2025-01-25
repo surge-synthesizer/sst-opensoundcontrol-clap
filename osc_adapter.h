@@ -121,7 +121,7 @@ struct OSCAdapter
         // soon as possible
         onUnhandledMessage = [this](oscpkt::Message *msg)
         { std::cout << "unhandled OSCmessage : " << msg->addressPattern() << std::endl; };
-        onMainThread = []() { std::cout << "osc-adapter got main thread callback" << std::endl; };
+        onMainThread = []() {};
         stateExtension = (clap_plugin_state *)p->get_extension(p, CLAP_EXT_STATE);
         paramsExtension = (clap_plugin_params *)p->get_extension(p, CLAP_EXT_PARAMS);
         if (paramsExtension)
@@ -302,6 +302,7 @@ struct OSCAdapter
     {
         if (!(stateExtension && clapHost))
             return;
+        spinLock.lock();
         onMainThread = [this]()
         {
             clap_ostream os;
@@ -322,7 +323,9 @@ struct OSCAdapter
             }
             else
                 std::cout << "plugin did not save state" << std::endl;
+            onMainThread = []() {};
         };
+        spinLock.unlock();
         clapHost->request_callback(clapHost);
     }
     void handleOutputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketWriter &pw)
@@ -348,8 +351,7 @@ struct OSCAdapter
                     oscpkt::Message repl;
                     repl.init("/clap_string").pushStr(sevt->bytes);
                     pw.init().addMessage(repl);
-                    socket.sendPacketTo(pw.packetData(), pw.packetSize(),
-                                         socket.packetOrigin());
+                    socket.sendPacketTo(pw.packetData(), pw.packetSize(), socket.packetOrigin());
                 }
                 if (hdr->type == CLAP_EVENT_NOTE_END)
                 {
@@ -372,7 +374,7 @@ struct OSCAdapter
                         repl.init(addr).pushFloat(it->second);
                         pw.init().addMessage(repl);
                         socket.sendPacketTo(pw.packetData(), pw.packetSize(),
-                                             socket.packetOrigin());
+                                            socket.packetOrigin());
                     }
                 }
             }
