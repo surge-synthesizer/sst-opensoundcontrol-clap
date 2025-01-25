@@ -274,6 +274,34 @@ struct OSCAdapter
                                              farg1 / 127.0);
                     fromOscThread.push(*(clap_multi_event *)&nev);
                 }
+                else if (msg->match("/mnote/rel")
+                             .popFloat(farg0)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
+                             .isOkNoMoreArgs())
+                {
+                    auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0,
+                                             (int32_t)farg2, farg1 / 127.0);
+                    fromOscThread.push(*(clap_multi_event *)&nev);
+                }
+                else if (msg->match("/fnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
+                {
+                    // this 2 argument fnote/rel path doesn't work yet
+                    //auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
+                    //                         farg1 / 127.0);
+                    //fromOscThread.push(*(clap_multi_event *)&nev);
+                }
+                else if (msg->match("/fnote/rel")
+                             .popFloat(farg0)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
+                             .isOkNoMoreArgs())
+                {
+                    auto key_and_detune = frequencyToKeyAndDetune(farg0);
+                    auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, key_and_detune.first,
+                                             (int32_t)farg2, farg1 / 127.0);
+                    fromOscThread.push(*(clap_multi_event *)&nev);
+                }
                 else if (msg->match("/nexp")
                              .popInt32(iarg0)
                              .popInt32(iarg1)
@@ -402,14 +430,18 @@ struct OSCAdapter
             fromOscThread.push(*(clap_multi_event *)&pev);
         }
     }
-
-    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
+    static std::pair<int, float> frequencyToKeyAndDetune(float hz)
     {
         // should we clamp or ignore out of bounds events?
-        farg0 = std::clamp(farg0, 8.175798915643707f, 12543.853951415975f);
-        double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
+        hz = std::clamp(hz, 8.175798915643707f, 12543.853951415975f);
+        double floatpitch = 69.0 + std::log2(hz / 440.0) * 12.0;
         int key = (int)floatpitch;
         double detune = floatpitch - key;
+        return {key, detune};
+    }
+    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
+    {
+        auto key_and_detune = frequencyToKeyAndDetune(farg0);
         uint16_t et = CLAP_EVENT_NOTE_ON;
         double velo = 0.0;
         if (iarg1 > 0)
@@ -421,9 +453,9 @@ struct OSCAdapter
             et = CLAP_EVENT_NOTE_OFF;
         }
         int nid = iarg2.value_or(-1);
-        auto nev = makeNoteEvent(0, et, -1, 0, key, nid, velo);
-        auto expev =
-            makeNoteExpressionEvent(0, -1, -1, key, nid, CLAP_NOTE_EXPRESSION_TUNING, detune);
+        auto nev = makeNoteEvent(0, et, -1, 0, key_and_detune.first, nid, velo);
+        auto expev = makeNoteExpressionEvent(0, -1, -1, key_and_detune.first, nid,
+                                             CLAP_NOTE_EXPRESSION_TUNING, key_and_detune.second);
         fromOscThread.push(*(clap_multi_event *)&nev);
         fromOscThread.push(*(clap_multi_event *)&expev);
     }
