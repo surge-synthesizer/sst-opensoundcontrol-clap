@@ -4,7 +4,6 @@
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/ext/state.h"
-#include "clap/helpers/event-list.hh"
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -16,7 +15,6 @@
 #include <memory>
 #include <iostream>
 #include <unordered_map>
-#include "choc_SpinLock.h"
 #include "clap/stream.h"
 #include "oscpkt.hh"
 #include "udp.hh"
@@ -147,6 +145,8 @@ struct OSCAdapter
             // for testing with TouchOsc
             addressToClapInfo["/2/fader1"] = addressToClapInfo["/param/main_level"];
             addressToClapInfo["/2/fader2"] = addressToClapInfo["/param/main_pan"];
+            addressToClapInfo["/2/fader3"] = addressToClapInfo["/param/op_1_feedback_level"];
+
 // idToAddress[addressToClapInfo["/param/main_level"].id] = "/2/fader1";
 #ifdef TEST_CUSTOM_STRING_MESSAGES
             osc_clap_string_event ev;
@@ -189,14 +189,14 @@ struct OSCAdapter
     }
     void postEventForOscOutput(const clap_event_header *ev)
     {
-        if (wantEvent(ev->type))
+        if (outputPortOk.load() && wantEvent(ev->type))
         {
             toOscThread.push(*(clap_multi_event *)ev);
         }
     }
     void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
     {
-        if (socket.receiveNextPacket(30))
+        if (socket.receiveNextPacket(oscReceiveTimeOut))
         {
             pr.init(socket.packetData(), socket.packetSize());
             oscpkt::Message *msg = nullptr;
@@ -240,7 +240,8 @@ struct OSCAdapter
                 }
                 else if (msg->match("/request_state").isOkNoMoreArgs())
                 {
-                    handle_state_request();
+                    // we don't support this for now as it's complicated
+                    // handle_state_request();
                 }
                 else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
                 {
@@ -300,7 +301,7 @@ struct OSCAdapter
     {
         if (!(stateExtension && clapHost))
             return;
-        
+
         onMainThread = [this]()
         {
             clap_ostream os;
@@ -323,7 +324,7 @@ struct OSCAdapter
                 std::cout << "plugin did not save state" << std::endl;
             onMainThread = []() {};
         };
-        
+
         clapHost->request_callback(clapHost);
     }
     void handleOutputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketWriter &pw)
@@ -364,15 +365,17 @@ struct OSCAdapter
         sendSock.connectTo("localhost", outputPort);
         if (!receiveSock.isOk())
         {
-            std::cout << "Error opening port " << inputPort << ": " << receiveSock.errorMessage()
-                      << "\n";
+            std::cout << "Error opening receive port " << inputPort << ": "
+                      << receiveSock.errorMessage() << "\n";
             return;
         }
         if (!sendSock.isOk())
         {
             std::cout << "send socket not ok\n";
-            return;
+            outputPortOk.store(false);
         }
+        else
+            outputPortOk.store(true);
 
         std::cout << "Server started, will listen to packets on port " << inputPort << std::endl;
         PacketReader pr;
@@ -380,11 +383,8 @@ struct OSCAdapter
 
         while (!oscThreadShouldStop)
         {
-            // checking that the receiving socket actually throttles, and it does
-            // std::chrono::time_point t = std::chrono::system_clock::now();
-            // time_t t_time_t = std::chrono::system_clock::to_time_t(t);
-            // std::cout << "time " << t_time_t << std::endl;
-            handleOutputMessages(sendSock, pw);
+            if (outputPortOk.load())
+                handleOutputMessages(sendSock, pw);
             if (!receiveSock.isOk())
             {
                 break;
@@ -451,6 +451,8 @@ struct OSCAdapter
     std::function<void()> onMainThread;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
+    std::atomic<bool> outputPortOk{false};
+    int oscReceiveTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
     const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
@@ -460,7 +462,7 @@ struct OSCAdapter
     std::unordered_map<std::string, clap_param_info> addressToClapInfo;
     std::unordered_map<clap_id, std::string> idToAddress;
     std::unordered_map<clap_id, float> latestParamValues;
-    
+
     union clap_multi_event
     {
         clap_event_header header;
