@@ -1,5 +1,6 @@
 #pragma once
-#include "clap/plugin.h"
+// #include "clap/plugin.h"
+// #include "clap/events.h"
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/ext/state.h"
@@ -19,6 +20,7 @@
 #include "clap/stream.h"
 #include "oscpkt.hh"
 #include "udp.hh"
+#include "sst/cpputils/ring_buffer.h"
 
 namespace sst::osc_adapter
 {
@@ -171,9 +173,6 @@ struct OSCAdapter
         }
         return result;
     }
-    const clap_input_events *getInputEventQueue() { return eventList.clapInputEvents(); }
-    const clap_output_events *getOutputEventQueue() { return eventListIncoming.clapOutputEvents(); }
-
     void startWith(uint32_t inputPort, uint32_t outputPort)
     {
         oscThreadShouldStop = false;
@@ -192,8 +191,7 @@ struct OSCAdapter
     {
         if (wantEvent(ev->type))
         {
-            std::lock_guard<choc::threading::SpinLock> locker(spinLock);
-            eventListIncoming.push(ev);
+            toOscThread.push(*(clap_multi_event *)ev);
         }
     }
     void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
@@ -221,7 +219,7 @@ struct OSCAdapter
                                                      mit->second.max_value);
                         auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val,
                                                            mit->second.cookie);
-                        addEventLocked((const clap_event_header *)&pev);
+                        fromOscThread.push(*(clap_multi_event *)&pev);
                     }
                 }
 
@@ -233,12 +231,12 @@ struct OSCAdapter
                 else if (msg->match("/allsoundoff").isOkNoMoreArgs())
                 {
                     auto mev = makeMIDI1Event(0, -1, 176, 120, 0);
-                    addEventLocked((const clap_event_header *)&mev);
+                    fromOscThread.push(*(clap_multi_event *)&mev);
                 }
                 else if (msg->match("/allnotesoff").isOkNoMoreArgs())
                 {
                     auto mev = makeMIDI1Event(0, -1, 176, 123, 0);
-                    addEventLocked((const clap_event_header *)&mev);
+                    fromOscThread.push(*(clap_multi_event *)&mev);
                 }
                 else if (msg->match("/request_state").isOkNoMoreArgs())
                 {
@@ -273,7 +271,7 @@ struct OSCAdapter
 
                     auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
                                              farg1 / 127.0);
-                    addEventLocked((const clap_event_header *)&nev);
+                    fromOscThread.push(*(clap_multi_event *)&nev);
                 }
                 else if (msg->match("/nexp")
                              .popInt32(iarg0)
@@ -287,7 +285,7 @@ struct OSCAdapter
                         // expression types have varying allowed ranges, should clamp to those here
                         // or in the event maker function
                         auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
-                        addEventLocked((const clap_event_header *)&expev);
+                        fromOscThread.push(*(clap_multi_event *)&expev);
                     }
                 }
                 else
@@ -302,7 +300,7 @@ struct OSCAdapter
     {
         if (!(stateExtension && clapHost))
             return;
-        spinLock.lock();
+        
         onMainThread = [this]()
         {
             clap_ostream os;
@@ -325,61 +323,34 @@ struct OSCAdapter
                 std::cout << "plugin did not save state" << std::endl;
             onMainThread = []() {};
         };
-        spinLock.unlock();
+        
         clapHost->request_callback(clapHost);
     }
     void handleOutputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketWriter &pw)
     {
-        // Locking here is very nasty as we are doing memory allocations, network traffic etc
-        // and the audio thread might potentially have to wait but this shall suffice for some
-        // initial testing
-        if (spinLock.try_lock())
+        auto oscmsg = toOscThread.pop();
+        while (oscmsg.has_value())
         {
-            auto evcount = eventListIncoming.size();
-            if (evcount == 0)
+            auto hdr = (const clap_event_header *)&(*oscmsg);
+            if (hdr->type == CLAP_EVENT_PARAM_VALUE)
             {
-                spinLock.unlock();
-                return;
+                auto pev = (const clap_event_param_value *)hdr;
+                latestParamValues[pev->param_id] = pev->value;
             }
-
-            for (size_t i = 0; i < evcount; ++i)
+            else if (hdr->type == CLAP_EVENT_PARAM_GESTURE_END)
             {
-                auto hdr = eventListIncoming.get(i);
-                if (hdr->space_id == 42 && hdr->type == 666)
+                auto pev = (const clap_event_param_gesture *)hdr;
+                oscpkt::Message repl;
+                auto it = latestParamValues.find(pev->param_id);
+                if (it != latestParamValues.end())
                 {
-                    auto sevt = (osc_clap_string_event *)hdr;
-                    oscpkt::Message repl;
-                    repl.init("/clap_string").pushStr(sevt->bytes);
+                    const auto &addr = idToAddress[pev->param_id];
+                    repl.init(addr).pushFloat(it->second);
                     pw.init().addMessage(repl);
                     socket.sendPacketTo(pw.packetData(), pw.packetSize(), socket.packetOrigin());
                 }
-                if (hdr->type == CLAP_EVENT_NOTE_END)
-                {
-                    auto nev = (clap_event_note *)hdr;
-                    std::cout << "got note end event " << nev->key << std::endl;
-                }
-                if (hdr->type == CLAP_EVENT_PARAM_VALUE)
-                {
-                    auto pev = (const clap_event_param_value *)hdr;
-                    latestParamValues[pev->param_id] = pev->value;
-                }
-                else if (hdr->type == CLAP_EVENT_PARAM_GESTURE_END)
-                {
-                    auto pev = (const clap_event_param_gesture *)hdr;
-                    oscpkt::Message repl;
-                    auto it = latestParamValues.find(pev->param_id);
-                    if (it != latestParamValues.end())
-                    {
-                        const auto &addr = idToAddress[pev->param_id];
-                        repl.init(addr).pushFloat(it->second);
-                        pw.init().addMessage(repl);
-                        socket.sendPacketTo(pw.packetData(), pw.packetSize(),
-                                            socket.packetOrigin());
-                    }
-                }
             }
-            eventListIncoming.clear();
-            spinLock.unlock();
+            oscmsg = toOscThread.pop();
         }
     }
 
@@ -428,7 +399,7 @@ struct OSCAdapter
         {
             auto pev =
                 makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
-            addEventLocked((const clap_event_header *)&pev);
+            fromOscThread.push(*(clap_multi_event *)&pev);
         }
     }
 
@@ -452,9 +423,8 @@ struct OSCAdapter
         auto nev = makeNoteEvent(0, et, -1, 0, key, nid, velo);
         auto expev =
             makeNoteExpressionEvent(0, -1, -1, key, nid, CLAP_NOTE_EXPRESSION_TUNING, detune);
-        std::lock_guard<choc::threading::SpinLock> guard(spinLock);
-        eventList.push((const clap_event_header *)&nev);
-        eventList.push((const clap_event_header *)&expev);
+        fromOscThread.push(*(clap_multi_event *)&nev);
+        fromOscThread.push(*(clap_multi_event *)&expev);
     }
 
     void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1, std::optional<int> iarg2)
@@ -471,7 +441,7 @@ struct OSCAdapter
         }
         int32_t nid = iarg2.value_or(-1);
         auto nev = makeNoteEvent(0, et, -1, 0, iarg0, nid, velo);
-        addEventLocked((const clap_event_header *)&nev);
+        fromOscThread.push(*(clap_multi_event *)&nev);
     }
     bool wantEvent(int32_t eventType) const
     {
@@ -481,8 +451,6 @@ struct OSCAdapter
     std::function<void()> onMainThread;
     std::unique_ptr<std::thread> oscThread;
     std::atomic<bool> oscThreadShouldStop{false};
-    clap::helpers::EventList eventList;
-    clap::helpers::EventList eventListIncoming;
     const clap_plugin *targetPlugin = nullptr;
     const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
@@ -492,13 +460,18 @@ struct OSCAdapter
     std::unordered_map<std::string, clap_param_info> addressToClapInfo;
     std::unordered_map<clap_id, std::string> idToAddress;
     std::unordered_map<clap_id, float> latestParamValues;
-    choc::threading::SpinLock spinLock;
-
-  private:
-    void addEventLocked(const clap_event_header *h)
+    
+    union clap_multi_event
     {
-        std::lock_guard<choc::threading::SpinLock> guard(spinLock);
-        eventList.push(h);
-    }
+        clap_event_header header;
+        clap_event_param_value parval;
+        clap_event_param_gesture pargest;
+        clap_event_note notev;
+        clap_event_note_expression nexpev;
+        clap_event_midi midi;
+    };
+    // might need to tune the sizes
+    sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> fromOscThread;
+    sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> toOscThread;
 };
 } // namespace sst::osc_adapter
