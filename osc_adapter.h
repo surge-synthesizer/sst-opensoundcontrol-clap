@@ -1,5 +1,5 @@
 #pragma once
-#include "clap/clap.h"
+#include "clap/plugin.h"
 #include "clap/events.h"
 #include "clap/ext/params.h"
 #include "clap/ext/state.h"
@@ -325,7 +325,7 @@ struct OSCAdapter
         };
         clapHost->request_callback(clapHost);
     }
-    void handleOutputMessages(oscpkt::UdpSocket *socket, oscpkt::PacketWriter *pw)
+    void handleOutputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketWriter &pw)
     {
         // Locking here is very nasty as we are doing memory allocations, network traffic etc
         // and the audio thread might potentially have to wait but this shall suffice for some
@@ -347,9 +347,9 @@ struct OSCAdapter
                     auto sevt = (osc_clap_string_event *)hdr;
                     oscpkt::Message repl;
                     repl.init("/clap_string").pushStr(sevt->bytes);
-                    pw->init().addMessage(repl);
-                    socket->sendPacketTo(pw->packetData(), pw->packetSize(),
-                                         socket->packetOrigin());
+                    pw.init().addMessage(repl);
+                    socket.sendPacketTo(pw.packetData(), pw.packetSize(),
+                                         socket.packetOrigin());
                 }
                 if (hdr->type == CLAP_EVENT_NOTE_END)
                 {
@@ -370,9 +370,9 @@ struct OSCAdapter
                     {
                         const auto &addr = idToAddress[pev->param_id];
                         repl.init(addr).pushFloat(it->second);
-                        pw->init().addMessage(repl);
-                        socket->sendPacketTo(pw->packetData(), pw->packetSize(),
-                                             socket->packetOrigin());
+                        pw.init().addMessage(repl);
+                        socket.sendPacketTo(pw.packetData(), pw.packetSize(),
+                                             socket.packetOrigin());
                     }
                 }
             }
@@ -411,7 +411,7 @@ struct OSCAdapter
             // std::chrono::time_point t = std::chrono::system_clock::now();
             // time_t t_time_t = std::chrono::system_clock::to_time_t(t);
             // std::cout << "time " << t_time_t << std::endl;
-            handleOutputMessages(&sendSock, &pw);
+            handleOutputMessages(sendSock, pw);
             if (!receiveSock.isOk())
             {
                 break;
