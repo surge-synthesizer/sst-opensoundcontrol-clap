@@ -207,7 +207,7 @@ struct OSCAdapter
                 int32_t iarg2 = 0;
                 float farg0 = 0.0f;
                 float farg1 = 0.0f;
-
+                float farg2 = 0.0f;
                 // is it a named clap parameter?
                 auto mit = addressToClapInfo.find(msg->addressPattern());
                 if (mit != addressToClapInfo.end())
@@ -243,29 +243,29 @@ struct OSCAdapter
                     // we don't support this for now as it's complicated
                     // handle_state_request();
                 }
-                else if (msg->match("/mnote").popInt32(iarg0).popInt32(iarg1).isOkNoMoreArgs())
+                else if (msg->match("/mnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, iarg0, iarg1, std::nullopt);
+                    handle_mnote_msg(msg, farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/mnote")
-                             .popInt32(iarg0)
-                             .popInt32(iarg1)
-                             .popInt32(iarg2)
+                             .popFloat(farg0)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, iarg0, iarg1, iarg2);
+                    handle_mnote_msg(msg, farg0, farg1, farg2);
                 }
-                else if (msg->match("/fnote").popFloat(farg0).popInt32(iarg1).isOkNoMoreArgs())
+                else if (msg->match("/fnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, iarg1, std::nullopt);
+                    handle_fnote_msg(msg, farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/fnote")
                              .popFloat(farg0)
-                             .popInt32(iarg1)
-                             .popInt32(iarg2)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, iarg1, iarg2);
+                    handle_fnote_msg(msg, farg0, farg1, farg2);
                 }
                 else if (msg->match("/mnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
@@ -405,6 +405,7 @@ struct OSCAdapter
 
     void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
     {
+        // should we clamp or ignore out of bounds events?
         farg0 = std::clamp(farg0, 8.175798915643707f, 12543.853951415975f);
         double floatpitch = 69.0 + std::log2(farg0 / 440.0) * 12.0;
         int key = (int)floatpitch;
@@ -473,7 +474,7 @@ struct OSCAdapter
         clap_event_midi midi;
     };
     // might need to tune the sizes
-    sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> fromOscThread;
-    sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> toOscThread;
+    alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> fromOscThread;
+    alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> toOscThread;
 };
 } // namespace sst::osc_adapter
