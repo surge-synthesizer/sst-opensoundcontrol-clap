@@ -5,9 +5,6 @@ Very early at this stage, do not use for production.
 There are various issues :
 
 - The oscpkt library used for OSC communications is outdated. (But does this actually matter? Need to investigate...)
-- A spinlock is used (from the Choc library) to protect the Clap event lists
-- Dependency on the Clap C++ helper library (for the event list). Perhaps not a big deal since
-C++ Clap plugins are likely to use that anyway.
 - OSC addresses for plugin parameters are auto-generated from the plugin parameter display names, which
 should not be considered stable. Hopefully the Clap plugin format itself gets an extension for this at some point or some other solution is implemented.
 - Not many OSC message types handled (depending on the definition of "many")
