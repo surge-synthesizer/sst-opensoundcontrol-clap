@@ -70,6 +70,8 @@ inline clap_event_note makeNoteEvent(uint32_t time, uint16_t etype, int16_t port
                                      int16_t key, int32_t note_id, double velocity)
 {
     assert(etype >= CLAP_EVENT_NOTE_ON && etype <= CLAP_EVENT_NOTE_END);
+    // -1 for key theoretically supported for note offs, but hmm...
+    assert(key >= 0 && key <= 127);
     clap_event_note nev;
     nev.header.flags = 0;
     nev.header.size = sizeof(clap_event_note);
@@ -287,9 +289,9 @@ struct OSCAdapter
                 else if (msg->match("/fnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
                     // this 2 argument fnote/rel path doesn't work yet
-                    //auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
+                    // auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, (int16_t)farg0, -1,
                     //                         farg1 / 127.0);
-                    //fromOscThread.push(*(clap_multi_event *)&nev);
+                    // fromOscThread.push(*(clap_multi_event *)&nev);
                 }
                 else if (msg->match("/fnote/rel")
                              .popFloat(farg0)
