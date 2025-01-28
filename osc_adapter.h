@@ -431,6 +431,8 @@ struct OSCAdapter
         auto it = indexToClapParamInfo.find(iarg0);
         if (it != indexToClapParamInfo.end())
         {
+            farg0 = std::clamp(farg0, 0.0f, 1.0f);
+            farg0 = mapvalue<float>(farg0, 0.0f, 1.0f, it->second.min_value, it->second.max_value);
             auto pev =
                 makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
             fromOscThread.push(*(clap_multi_event *)&pev);
