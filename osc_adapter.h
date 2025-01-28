@@ -313,8 +313,12 @@ struct OSCAdapter
                     if (iarg1 >= CLAP_NOTE_EXPRESSION_VOLUME &&
                         iarg1 <= CLAP_NOTE_EXPRESSION_PRESSURE)
                     {
-                        // expression types have varying allowed ranges, should clamp to those here
-                        // or in the event maker function
+                        if (iarg1 == CLAP_NOTE_EXPRESSION_VOLUME)
+                            farg0 = std::clamp(farg0, 0.000001f, 4.0f);
+                        else if (iarg1 == CLAP_NOTE_EXPRESSION_TUNING)
+                            farg0 = std::clamp(farg0, -120.0f, 120.0f);
+                        else
+                            farg0 = std::clamp(farg0, 0.0f, 1.0f);
                         auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
                         fromOscThread.push(*(clap_multi_event *)&expev);
                     }
