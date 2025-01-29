@@ -15,6 +15,7 @@
 #include <memory>
 #include <iostream>
 #include <unordered_map>
+#include "clap/id.h"
 #include "clap/stream.h"
 #include "oscpkt.hh"
 #include "udp.hh"
@@ -115,6 +116,28 @@ inline Type mapvalue(Type sourceValue, Type sourceRangeMin, Type sourceRangeMax,
                                 (sourceRangeMax - sourceRangeMin);
 }
 
+struct light_clap_param_info
+{
+    clap_id id = CLAP_INVALID_ID;
+    clap_param_info_flags flags = 0;
+    void *cookie = nullptr;
+    double min_value = 0.0;
+    double max_value = 0.0;
+    double default_value = 0.0;
+};
+
+inline light_clap_param_info fromFullParamInfo(clap_param_info *pinfo)
+{
+    light_clap_param_info info;
+    info.cookie = pinfo->cookie;
+    info.default_value = pinfo->default_value;
+    info.min_value = pinfo->min_value;
+    info.max_value = pinfo->max_value;
+    info.flags = pinfo->flags;
+    info.id = pinfo->id;
+    return info;
+}
+
 struct OSCAdapter
 {
     OSCAdapter(const clap_plugin *p, const clap_host *h) : targetPlugin(p), clapHost(h)
@@ -134,12 +157,12 @@ struct OSCAdapter
                 clap_param_info pinfo;
                 if (paramsExtension->get_info(p, i, &pinfo))
                 {
-                    indexToClapParamInfo[i] = pinfo;
-                    idToClapParamInfo[pinfo.id] = pinfo;
+                    indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
+                    idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
                     // outfile << pinfo.name << " <- " << address << " [range " << pinfo.min_value
                     //        << " .. " << pinfo.max_value << "]\n";
-                    addressToClapInfo[address] = pinfo;
+                    addressToClapInfo[address] = fromFullParamInfo(&pinfo);
                     idToAddress[pinfo.id] = address;
                     latestParamValues[pinfo.id] = pinfo.default_value;
                 }
@@ -313,8 +336,12 @@ struct OSCAdapter
                     if (iarg1 >= CLAP_NOTE_EXPRESSION_VOLUME &&
                         iarg1 <= CLAP_NOTE_EXPRESSION_PRESSURE)
                     {
-                        // expression types have varying allowed ranges, should clamp to those here
-                        // or in the event maker function
+                        if (iarg1 == CLAP_NOTE_EXPRESSION_VOLUME)
+                            farg0 = std::clamp(farg0, 0.000001f, 4.0f);
+                        else if (iarg1 == CLAP_NOTE_EXPRESSION_TUNING)
+                            farg0 = std::clamp(farg0, -120.0f, 120.0f);
+                        else
+                            farg0 = std::clamp(farg0, 0.0f, 1.0f);
                         auto expev = makeNoteExpressionEvent(0, -1, -1, -1, iarg0, iarg1, farg0);
                         fromOscThread.push(*(clap_multi_event *)&expev);
                     }
@@ -427,6 +454,8 @@ struct OSCAdapter
         auto it = indexToClapParamInfo.find(iarg0);
         if (it != indexToClapParamInfo.end())
         {
+            farg0 = std::clamp(farg0, 0.0f, 1.0f);
+            farg0 = mapvalue<float>(farg0, 0.0f, 1.0f, it->second.min_value, it->second.max_value);
             auto pev =
                 makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
             fromOscThread.push(*(clap_multi_event *)&pev);
@@ -492,9 +521,9 @@ struct OSCAdapter
     const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
     clap_plugin_state *stateExtension = nullptr;
-    std::unordered_map<size_t, clap_param_info> indexToClapParamInfo;
-    std::unordered_map<clap_id, clap_param_info> idToClapParamInfo;
-    std::unordered_map<std::string, clap_param_info> addressToClapInfo;
+    std::unordered_map<size_t, light_clap_param_info> indexToClapParamInfo;
+    std::unordered_map<clap_id, light_clap_param_info> idToClapParamInfo;
+    std::unordered_map<std::string, light_clap_param_info> addressToClapInfo;
     std::unordered_map<clap_id, std::string> idToAddress;
     std::unordered_map<clap_id, float> latestParamValues;
 
