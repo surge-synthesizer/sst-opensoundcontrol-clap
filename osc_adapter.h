@@ -327,6 +327,14 @@ struct OSCAdapter
                                              (int32_t)farg2, farg1 / 127.0);
                     fromOscThread.push(*(clap_multi_event *)&nev);
                 }
+                else if (msg->match("/vnote")
+                             .popFloat(farg0)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
+                             .isOkNoMoreArgs())
+                {
+                    handle_vnote_msg(msg, farg0, farg1, farg2);
+                }
                 else if (msg->match("/nexp")
                              .popInt32(iarg0)
                              .popInt32(iarg1)
@@ -461,7 +469,16 @@ struct OSCAdapter
             fromOscThread.push(*(clap_multi_event *)&pev);
         }
     }
-    static std::pair<int, float> frequencyToKeyAndDetune(float hz)
+    // EuroRack/VCV Rack convention : 0 volts is Middle C/261.6255653005986 Hz,
+    // -1 volts is octave down from that, +1 volts is octave up from that
+    static std::pair<int, double> voltageToKeyAndDetune(float volts)
+    {
+        double floatpitch = 60.0 + volts * 12.0;
+        int key = (int)floatpitch;
+        double detune = floatpitch - key;
+        return {key, detune};
+    }
+    static std::pair<int, double> frequencyToKeyAndDetune(float hz)
     {
         // should we clamp or ignore out of bounds events?
         hz = std::clamp(hz, 8.175798915643707f, 12543.853951415975f);
@@ -469,6 +486,27 @@ struct OSCAdapter
         int key = (int)floatpitch;
         double detune = floatpitch - key;
         return {key, detune};
+    }
+    void handle_vnote_msg(oscpkt::Message *msg, float farg0, float farg1, float farg2)
+    {
+        uint16_t et = CLAP_EVENT_NOTE_ON;
+        double velo = 0.0;
+        if (farg1 > 0)
+        {
+            velo = farg1 / 127.0;
+        }
+        else
+        {
+            et = CLAP_EVENT_NOTE_OFF;
+        }
+        farg0 = std::clamp(farg0, -5.0f, 5.0f);
+        auto key_and_detune = voltageToKeyAndDetune(farg0);
+        auto nev = makeNoteEvent(0, et, -1, 0, key_and_detune.first, (int32_t)farg2, velo);
+        auto expev = makeNoteExpressionEvent(0, -1, -1, -1, (int32_t)farg2,
+                                             CLAP_NOTE_EXPRESSION_TUNING, key_and_detune.second);
+        fromOscThread.push(*(clap_multi_event *)&nev);
+        if (et == CLAP_EVENT_NOTE_ON)
+            fromOscThread.push(*(clap_multi_event *)&expev);
     }
     void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
     {
@@ -488,7 +526,8 @@ struct OSCAdapter
         auto expev = makeNoteExpressionEvent(0, -1, -1, key_and_detune.first, nid,
                                              CLAP_NOTE_EXPRESSION_TUNING, key_and_detune.second);
         fromOscThread.push(*(clap_multi_event *)&nev);
-        fromOscThread.push(*(clap_multi_event *)&expev);
+        if (et == CLAP_EVENT_NOTE_ON)
+            fromOscThread.push(*(clap_multi_event *)&expev);
     }
 
     void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1, std::optional<int> iarg2)
