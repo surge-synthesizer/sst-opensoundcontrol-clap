@@ -270,7 +270,7 @@ struct OSCAdapter
                 }
                 else if (msg->match("/mnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, farg0, farg1, std::nullopt);
+                    handle_mnote_msg(farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/mnote")
                              .popFloat(farg0)
@@ -278,11 +278,11 @@ struct OSCAdapter
                              .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, farg0, farg1, farg2);
+                    handle_mnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/fnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, farg1, std::nullopt);
+                    handle_fnote_msg(farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/fnote")
                              .popFloat(farg0)
@@ -290,7 +290,7 @@ struct OSCAdapter
                              .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, farg1, farg2);
+                    handle_fnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/mnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
@@ -333,7 +333,7 @@ struct OSCAdapter
                              .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_vnote_msg(msg, farg0, farg1, farg2);
+                    handle_vnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/nexp")
                              .popInt32(iarg0)
@@ -487,7 +487,7 @@ struct OSCAdapter
         double detune = floatpitch - key;
         return {key, detune};
     }
-    void handle_vnote_msg(oscpkt::Message *msg, float farg0, float farg1, float farg2)
+    void handle_vnote_msg(float farg0, float farg1, float farg2)
     {
         uint16_t et = CLAP_EVENT_NOTE_ON;
         double velo = 0.0;
@@ -508,7 +508,7 @@ struct OSCAdapter
         if (et == CLAP_EVENT_NOTE_ON)
             fromOscThread.push(*(clap_multi_event *)&expev);
     }
-    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
+    void handle_fnote_msg(float farg0, int iarg1, std::optional<int> iarg2)
     {
         auto key_and_detune = frequencyToKeyAndDetune(farg0);
         uint16_t et = CLAP_EVENT_NOTE_ON;
@@ -530,7 +530,7 @@ struct OSCAdapter
             fromOscThread.push(*(clap_multi_event *)&expev);
     }
 
-    void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1, std::optional<int> iarg2)
+    void handle_mnote_msg(int iarg0, int iarg1, std::optional<int> iarg2)
     {
         uint16_t et = CLAP_EVENT_NOTE_ON;
         double velo = 0.0;
