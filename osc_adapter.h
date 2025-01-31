@@ -239,10 +239,8 @@ struct OSCAdapter
                 {
                     if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
                     {
-                        farg0 = std::clamp(farg0, 0.0f, 1.0f);
-                        double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
-                                                     mit->second.max_value);
-                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val,
+                        auto value = getMappedParameterValue(&mit->second, farg0);
+                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, value,
                                                            mit->second.cookie);
                         fromOscThread.push(*(clap_multi_event *)&pev);
                     }
@@ -251,7 +249,7 @@ struct OSCAdapter
                 if (msg->match("/set_parameter").popInt32(iarg0).popFloat(farg0).isOkNoMoreArgs())
                 {
                     // indexed parameter
-                    handle_set_parameter(msg, iarg0, farg0);
+                    handle_set_parameter(iarg0, farg0);
                 }
                 else if (msg->match("/allsoundoff").isOkNoMoreArgs())
                 {
@@ -270,7 +268,7 @@ struct OSCAdapter
                 }
                 else if (msg->match("/mnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, farg0, farg1, std::nullopt);
+                    handle_mnote_msg(farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/mnote")
                              .popFloat(farg0)
@@ -278,11 +276,11 @@ struct OSCAdapter
                              .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_mnote_msg(msg, farg0, farg1, farg2);
+                    handle_mnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/fnote").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, farg1, std::nullopt);
+                    handle_fnote_msg(farg0, farg1, std::nullopt);
                 }
                 else if (msg->match("/fnote")
                              .popFloat(farg0)
@@ -290,7 +288,7 @@ struct OSCAdapter
                              .popFloat(farg2)
                              .isOkNoMoreArgs())
                 {
-                    handle_fnote_msg(msg, farg0, farg1, farg2);
+                    handle_fnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/mnote/rel").popFloat(farg0).popFloat(farg1).isOkNoMoreArgs())
                 {
@@ -326,6 +324,14 @@ struct OSCAdapter
                     auto nev = makeNoteEvent(0, CLAP_EVENT_NOTE_OFF, -1, 0, key_and_detune.first,
                                              (int32_t)farg2, farg1 / 127.0);
                     fromOscThread.push(*(clap_multi_event *)&nev);
+                }
+                else if (msg->match("/vnote")
+                             .popFloat(farg0)
+                             .popFloat(farg1)
+                             .popFloat(farg2)
+                             .isOkNoMoreArgs())
+                {
+                    handle_vnote_msg(farg0, farg1, farg2);
                 }
                 else if (msg->match("/nexp")
                              .popInt32(iarg0)
@@ -449,19 +455,37 @@ struct OSCAdapter
             handleInputMessages(receiveSock, pr);
         }
     }
-    void handle_set_parameter(oscpkt::Message *msg, int iarg0, float farg0)
+    float getMappedParameterValue(light_clap_param_info *info, float value)
+    {
+        if (pluginParametersNormalized)
+        {
+            value = std::clamp(value, 0.0f, 1.0f);
+            value = mapvalue<float>(value, 0.0f, 1.0f, info->min_value, info->max_value);
+            return value;
+        }
+        return std::clamp<float>(value, info->min_value, info->max_value);
+    }
+    void handle_set_parameter(int iarg0, float farg0)
     {
         auto it = indexToClapParamInfo.find(iarg0);
         if (it != indexToClapParamInfo.end())
         {
-            farg0 = std::clamp(farg0, 0.0f, 1.0f);
-            farg0 = mapvalue<float>(farg0, 0.0f, 1.0f, it->second.min_value, it->second.max_value);
+            auto value = getMappedParameterValue(&it->second, farg0);
             auto pev =
-                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
+                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, value, it->second.cookie);
             fromOscThread.push(*(clap_multi_event *)&pev);
         }
     }
-    static std::pair<int, float> frequencyToKeyAndDetune(float hz)
+    // EuroRack/VCV Rack convention : 0 volts is Middle C/261.6255653005986 Hz,
+    // -1 volts is octave down from that, +1 volts is octave up from that
+    static std::pair<int, double> voltageToKeyAndDetune(float volts)
+    {
+        double floatpitch = 60.0 + volts * 12.0;
+        int key = (int)floatpitch;
+        double detune = floatpitch - key;
+        return {key, detune};
+    }
+    static std::pair<int, double> frequencyToKeyAndDetune(float hz)
     {
         // should we clamp or ignore out of bounds events?
         hz = std::clamp(hz, 8.175798915643707f, 12543.853951415975f);
@@ -470,7 +494,28 @@ struct OSCAdapter
         double detune = floatpitch - key;
         return {key, detune};
     }
-    void handle_fnote_msg(oscpkt::Message *msg, float farg0, int iarg1, std::optional<int> iarg2)
+    void handle_vnote_msg(float farg0, float farg1, float farg2)
+    {
+        uint16_t et = CLAP_EVENT_NOTE_ON;
+        double velo = 0.0;
+        if (farg1 > 0)
+        {
+            velo = farg1 / 127.0;
+        }
+        else
+        {
+            et = CLAP_EVENT_NOTE_OFF;
+        }
+        farg0 = std::clamp(farg0, -5.0f, 5.0f);
+        auto key_and_detune = voltageToKeyAndDetune(farg0);
+        auto nev = makeNoteEvent(0, et, -1, 0, key_and_detune.first, (int32_t)farg2, velo);
+        auto expev = makeNoteExpressionEvent(0, -1, -1, -1, (int32_t)farg2,
+                                             CLAP_NOTE_EXPRESSION_TUNING, key_and_detune.second);
+        fromOscThread.push(*(clap_multi_event *)&nev);
+        if (et == CLAP_EVENT_NOTE_ON)
+            fromOscThread.push(*(clap_multi_event *)&expev);
+    }
+    void handle_fnote_msg(float farg0, int iarg1, std::optional<int> iarg2)
     {
         auto key_and_detune = frequencyToKeyAndDetune(farg0);
         uint16_t et = CLAP_EVENT_NOTE_ON;
@@ -488,10 +533,11 @@ struct OSCAdapter
         auto expev = makeNoteExpressionEvent(0, -1, -1, key_and_detune.first, nid,
                                              CLAP_NOTE_EXPRESSION_TUNING, key_and_detune.second);
         fromOscThread.push(*(clap_multi_event *)&nev);
-        fromOscThread.push(*(clap_multi_event *)&expev);
+        if (et == CLAP_EVENT_NOTE_ON)
+            fromOscThread.push(*(clap_multi_event *)&expev);
     }
 
-    void handle_mnote_msg(oscpkt::Message *msg, int iarg0, int iarg1, std::optional<int> iarg2)
+    void handle_mnote_msg(int iarg0, int iarg1, std::optional<int> iarg2)
     {
         uint16_t et = CLAP_EVENT_NOTE_ON;
         double velo = 0.0;
@@ -513,8 +559,7 @@ struct OSCAdapter
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::function<void()> onMainThread;
-    std::unique_ptr<std::thread> oscThread;
-    std::atomic<bool> oscThreadShouldStop{false};
+    bool pluginParametersNormalized = true;
     std::atomic<bool> outputPortOk{false};
     int oscReceiveTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
@@ -539,5 +584,7 @@ struct OSCAdapter
     // might need to tune the sizes
     alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> fromOscThread;
     alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> toOscThread;
+    std::unique_ptr<std::thread> oscThread;
+    std::atomic<bool> oscThreadShouldStop{false};
 };
 } // namespace sst::osc_adapter
