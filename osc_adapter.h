@@ -239,10 +239,8 @@ struct OSCAdapter
                 {
                     if (msg->match(mit->first).popFloat(farg0).isOkNoMoreArgs())
                     {
-                        farg0 = std::clamp(farg0, 0.0f, 1.0f);
-                        double val = mapvalue<float>(farg0, 0.0f, 1.0f, mit->second.min_value,
-                                                     mit->second.max_value);
-                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, val,
+                        auto value = getMappedParameterValue(&mit->second, farg0);
+                        auto pev = makeParameterValueEvent(0, -1, -1, -1, -1, mit->second.id, value,
                                                            mit->second.cookie);
                         fromOscThread.push(*(clap_multi_event *)&pev);
                     }
@@ -251,7 +249,7 @@ struct OSCAdapter
                 if (msg->match("/set_parameter").popInt32(iarg0).popFloat(farg0).isOkNoMoreArgs())
                 {
                     // indexed parameter
-                    handle_set_parameter(msg, iarg0, farg0);
+                    handle_set_parameter(iarg0, farg0);
                 }
                 else if (msg->match("/allsoundoff").isOkNoMoreArgs())
                 {
@@ -457,15 +455,24 @@ struct OSCAdapter
             handleInputMessages(receiveSock, pr);
         }
     }
-    void handle_set_parameter(oscpkt::Message *msg, int iarg0, float farg0)
+    float getMappedParameterValue(light_clap_param_info *info, float value)
+    {
+        if (pluginParametersNormalized)
+        {
+            value = std::clamp(value, 0.0f, 1.0f);
+            value = mapvalue<float>(value, 0.0f, 1.0f, info->min_value, info->max_value);
+            return value;
+        }
+        return std::clamp<float>(value, info->min_value, info->max_value);
+    }
+    void handle_set_parameter(int iarg0, float farg0)
     {
         auto it = indexToClapParamInfo.find(iarg0);
         if (it != indexToClapParamInfo.end())
         {
-            farg0 = std::clamp(farg0, 0.0f, 1.0f);
-            farg0 = mapvalue<float>(farg0, 0.0f, 1.0f, it->second.min_value, it->second.max_value);
+            auto value = getMappedParameterValue(&it->second, farg0);
             auto pev =
-                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, farg0, it->second.cookie);
+                makeParameterValueEvent(0, -1, -1, -1, -1, it->second.id, value, it->second.cookie);
             fromOscThread.push(*(clap_multi_event *)&pev);
         }
     }
@@ -552,8 +559,7 @@ struct OSCAdapter
     }
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::function<void()> onMainThread;
-    std::unique_ptr<std::thread> oscThread;
-    std::atomic<bool> oscThreadShouldStop{false};
+    bool pluginParametersNormalized = true;
     std::atomic<bool> outputPortOk{false};
     int oscReceiveTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
@@ -578,5 +584,7 @@ struct OSCAdapter
     // might need to tune the sizes
     alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> fromOscThread;
     alignas(32) sst::cpputils::SimpleRingBuffer<clap_multi_event, 1024> toOscThread;
+    std::unique_ptr<std::thread> oscThread;
+    std::atomic<bool> oscThreadShouldStop{false};
 };
 } // namespace sst::osc_adapter
