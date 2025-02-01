@@ -140,6 +140,16 @@ inline light_clap_param_info fromFullParamInfo(clap_param_info *pinfo)
 
 struct OSCAdapter
 {
+    template <typename Callback> inline void forEachInputEvent(Callback &&f)
+    {
+        auto msg = fromOscThread.pop();
+        while (msg.has_value())
+        {
+            auto ev = (const clap_event_header *)&(*msg);
+            f(ev);
+            msg = fromOscThread.pop();
+        }
+    }
     OSCAdapter(const clap_plugin *p, const clap_host *h) : targetPlugin(p), clapHost(h)
     {
         // std::endl is usually considered sus, but here we actually want to flush to the output as
