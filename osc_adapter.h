@@ -6,6 +6,7 @@
 #include "clap/ext/state.h"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <mutex>
@@ -232,7 +233,7 @@ struct OSCAdapter
     }
     void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
     {
-        if (socket.receiveNextPacket(oscReceiveTimeOut))
+        if (socket.receiveNextPacket(oscTimeOut))
         {
             pr.init(socket.packetData(), socket.packetSize());
             oscpkt::Message *msg = nullptr;
@@ -429,12 +430,16 @@ struct OSCAdapter
             }
             oscmsg = toOscThread.pop();
         }
+        // if input port is not active, we won't get the thread throttling from it,
+        // so sleep here
+        if (!inputPortActive)
+            std::this_thread::sleep_for(std::chrono::milliseconds(oscTimeOut));
     }
 
     void runOscThread(uint32_t inputPort, uint32_t outputPort)
     {
         using namespace oscpkt;
-        inputPortOk = false;
+        inputPortActive = false;
         outputPort = false;
         UdpSocket receiveSock;
         if (inputPort > 0)
@@ -449,7 +454,7 @@ struct OSCAdapter
             // return;
         }
         else
-            inputPortOk = true;
+            inputPortActive = true;
         if (!sendSock.isOk())
         {
             std::cout << "send socket not ok\n";
@@ -467,7 +472,7 @@ struct OSCAdapter
                 handleOutputMessages(sendSock, pw);
             if (!receiveSock.isOk())
             {
-                inputPortOk = false;
+                inputPortActive = false;
                 break;
             }
             handleInputMessages(receiveSock, pr);
@@ -581,9 +586,9 @@ struct OSCAdapter
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::function<void()> onMainThread;
     bool pluginParametersNormalized = true;
-    std::atomic<bool> inputPortOk{false};
+    std::atomic<bool> inputPortActive{false};
     std::atomic<bool> outputPortOk{false};
-    int oscReceiveTimeOut = 30; // milliseconds
+    int oscTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
     const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
