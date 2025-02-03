@@ -205,7 +205,7 @@ struct OSCAdapter
         for (auto &c : result)
         {
             c = std::tolower(c);
-            if ((!std::isalnum(c)) || c == ' ')
+            if (!std::isalnum(static_cast<unsigned char>(c)))
                 c = '_';
         }
         return result;
