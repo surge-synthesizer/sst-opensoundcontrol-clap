@@ -444,46 +444,70 @@ struct OSCAdapter
         UdpSocket receiveSock;
         if (inputPort > 0)
             receiveSock.bindTo(inputPort);
+        if (inputPort > 0)
+        {
+            if (!receiveSock.isOk())
+            {
+                std::cout << "Error opening receive port " << inputPort << ": "
+                          << receiveSock.errorMessage() << std::endl;
+            }
+            else
+            {
+                inputPortActive = true;
+                std::cout << "Server started, will listen to packets on port " << inputPort
+                          << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "OSC input port 0, input will not be active" << std::endl;
+        }
         UdpSocket sendSock;
         if (outputPort > 0)
+        {
             sendSock.connectTo("localhost", outputPort);
-        if (inputPort > 0 && !receiveSock.isOk())
-        {
-            std::cout << "Error opening receive port " << inputPort << ": "
-                      << receiveSock.errorMessage() << "\n";
-            // return;
+            if (!sendSock.isOk())
+            {
+                std::cout << "error opening osc output port " << outputPort << std::endl;
+            }
+            else
+            {
+                outputPortActive = true;
+                std::cout << "Client started, will send packets to port " << outputPort
+                          << std::endl;
+            }
         }
         else
         {
-            inputPortActive = true;
-            std::cout << "Server started, will listen to packets on port " << inputPort << std::endl;
+            std::cout << "OSC output port 0, output will not be active" << std::endl;
         }
-            
-        if (!sendSock.isOk())
-        {
-            std::cout << "send socket not ok\n";
-        }
-        else
-        {
-            outputPortActive.store(true);
-            std::cout << "Client started, will send packets to port " << outputPort << std::endl;
-        }
-            
 
-        
         PacketReader pr;
         PacketWriter pw;
 
         while (!oscThreadShouldStop)
         {
-            if (outputPortActive.load())
-                handleOutputMessages(sendSock, pw);
-            if (!receiveSock.isOk())
+            if (outputPortActive)
             {
-                inputPortActive = false;
-                break;
+                handleOutputMessages(sendSock, pw);
             }
-            handleInputMessages(receiveSock, pr);
+
+            if (inputPortActive)
+            {
+                if (receiveSock.isOk())
+                {
+                    handleInputMessages(receiveSock, pr);
+                }
+                else
+                {
+                    inputPortActive = false;
+                }
+            }
+            if (!inputPortActive && !outputPortActive)
+            {
+                std::cout << "OSC thread has nothing to do..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            }
         }
     }
     float getMappedParameterValue(light_clap_param_info *info, float value)
