@@ -6,6 +6,7 @@
 #include "clap/ext/state.h"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <mutex>
@@ -170,8 +171,9 @@ struct OSCAdapter
                     indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
                     idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
                     auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    // outfile << pinfo.name << " <- " << address << " [range " << pinfo.min_value
-                    //        << " .. " << pinfo.max_value << "]\n";
+                    // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name << "\"
+                    // [range "
+                    //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
                     addressToClapInfo[address] = fromFullParamInfo(&pinfo);
                     idToAddress[pinfo.id] = address;
                     latestParamValues[pinfo.id] = pinfo.default_value;
@@ -203,7 +205,7 @@ struct OSCAdapter
         for (auto &c : result)
         {
             c = std::tolower(c);
-            if (c == ' ')
+            if ((!std::isalnum(c)) || c == ' ')
                 c = '_';
         }
         return result;
@@ -224,14 +226,14 @@ struct OSCAdapter
     }
     void postEventForOscOutput(const clap_event_header *ev)
     {
-        if (outputPortOk.load() && wantEvent(ev->type))
+        if (outputPortActive.load() && wantEvent(ev->type))
         {
             toOscThread.push(*(clap_multi_event *)ev);
         }
     }
     void handleInputMessages(oscpkt::UdpSocket &socket, oscpkt::PacketReader &pr)
     {
-        if (socket.receiveNextPacket(oscReceiveTimeOut))
+        if (socket.receiveNextPacket(oscTimeOut))
         {
             pr.init(socket.packetData(), socket.packetSize());
             oscpkt::Message *msg = nullptr;
@@ -405,6 +407,8 @@ struct OSCAdapter
         auto oscmsg = toOscThread.pop();
         while (oscmsg.has_value())
         {
+            if (outputSuspended)
+                break;
             auto hdr = (const clap_event_header *)&(*oscmsg);
             if (hdr->type == CLAP_EVENT_PARAM_VALUE)
             {
@@ -426,43 +430,84 @@ struct OSCAdapter
             }
             oscmsg = toOscThread.pop();
         }
+        // if input port is not active, we won't get the thread throttling from it,
+        // so sleep here
+        if (!inputPortActive)
+            std::this_thread::sleep_for(std::chrono::milliseconds(oscTimeOut));
     }
 
     void runOscThread(uint32_t inputPort, uint32_t outputPort)
     {
         using namespace oscpkt;
+        inputPortActive = false;
+        outputPortActive = false;
         UdpSocket receiveSock;
-        receiveSock.bindTo(inputPort);
-        UdpSocket sendSock;
-
-        sendSock.connectTo("localhost", outputPort);
-        if (!receiveSock.isOk())
+        if (inputPort > 0)
+            receiveSock.bindTo(inputPort);
+        if (inputPort > 0)
         {
-            std::cout << "Error opening receive port " << inputPort << ": "
-                      << receiveSock.errorMessage() << "\n";
-            return;
-        }
-        if (!sendSock.isOk())
-        {
-            std::cout << "send socket not ok\n";
-            outputPortOk.store(false);
+            if (!receiveSock.isOk())
+            {
+                std::cout << "Error opening receive port " << inputPort << ": "
+                          << receiveSock.errorMessage() << std::endl;
+            }
+            else
+            {
+                inputPortActive = true;
+                std::cout << "Server started, will listen to packets on port " << inputPort
+                          << std::endl;
+            }
         }
         else
-            outputPortOk.store(true);
+        {
+            std::cout << "OSC input port 0, input will not be active" << std::endl;
+        }
+        UdpSocket sendSock;
+        if (outputPort > 0)
+        {
+            sendSock.connectTo("localhost", outputPort);
+            if (!sendSock.isOk())
+            {
+                std::cout << "error opening osc output port " << outputPort << std::endl;
+            }
+            else
+            {
+                outputPortActive = true;
+                std::cout << "Client started, will send packets to port " << outputPort
+                          << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "OSC output port 0, output will not be active" << std::endl;
+        }
 
-        std::cout << "Server started, will listen to packets on port " << inputPort << std::endl;
         PacketReader pr;
         PacketWriter pw;
 
         while (!oscThreadShouldStop)
         {
-            if (outputPortOk.load())
-                handleOutputMessages(sendSock, pw);
-            if (!receiveSock.isOk())
+            if (outputPortActive)
             {
-                break;
+                handleOutputMessages(sendSock, pw);
             }
-            handleInputMessages(receiveSock, pr);
+
+            if (inputPortActive)
+            {
+                if (receiveSock.isOk())
+                {
+                    handleInputMessages(receiveSock, pr);
+                }
+                else
+                {
+                    inputPortActive = false;
+                }
+            }
+            if (!inputPortActive && !outputPortActive)
+            {
+                std::cout << "OSC thread has nothing to do..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            }
         }
     }
     float getMappedParameterValue(light_clap_param_info *info, float value)
@@ -567,11 +612,15 @@ struct OSCAdapter
     {
         return eventType == CLAP_EVENT_PARAM_VALUE || eventType == CLAP_EVENT_PARAM_GESTURE_END;
     }
+    void suspendOutput() { outputSuspended = true; }
+    void resumeOutput() { outputSuspended = false; }
+    std::atomic<bool> outputSuspended{false};
     std::function<void(oscpkt::Message *msg)> onUnhandledMessage;
     std::function<void()> onMainThread;
     bool pluginParametersNormalized = true;
-    std::atomic<bool> outputPortOk{false};
-    int oscReceiveTimeOut = 30; // milliseconds
+    std::atomic<bool> inputPortActive{false};
+    std::atomic<bool> outputPortActive{false};
+    int oscTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
     const clap_host *clapHost = nullptr;
     clap_plugin_params *paramsExtension = nullptr;
