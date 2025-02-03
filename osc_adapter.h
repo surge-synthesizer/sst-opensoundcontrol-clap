@@ -423,7 +423,17 @@ struct OSCAdapter
                 if (it != latestParamValues.end())
                 {
                     const auto &addr = idToAddress[pev->param_id];
-                    repl.init(addr).pushFloat(it->second);
+                    float valtosend = it->second;
+                    if (pluginParametersNormalized)
+                    {
+                        auto infoit = idToClapParamInfo.find(pev->param_id);
+                        if (infoit != idToClapParamInfo.end())
+                        {
+                            valtosend = mapvalue<float>(valtosend, infoit->second.min_value,
+                                                        infoit->second.max_value, 0.0, 1.0);
+                        }
+                    }
+                    repl.init(addr).pushFloat(valtosend);
                     pw.init().addMessage(repl);
                     socket.sendPacketTo(pw.packetData(), pw.packetSize(), socket.packetOrigin());
                 }
