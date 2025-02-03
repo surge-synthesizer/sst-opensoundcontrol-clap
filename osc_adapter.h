@@ -226,7 +226,7 @@ struct OSCAdapter
     }
     void postEventForOscOutput(const clap_event_header *ev)
     {
-        if (outputPortOk.load() && wantEvent(ev->type))
+        if (outputPortActive.load() && wantEvent(ev->type))
         {
             toOscThread.push(*(clap_multi_event *)ev);
         }
@@ -440,7 +440,7 @@ struct OSCAdapter
     {
         using namespace oscpkt;
         inputPortActive = false;
-        outputPort = false;
+        outputPortActive = false;
         UdpSocket receiveSock;
         if (inputPort > 0)
             receiveSock.bindTo(inputPort);
@@ -454,21 +454,29 @@ struct OSCAdapter
             // return;
         }
         else
+        {
             inputPortActive = true;
+            std::cout << "Server started, will listen to packets on port " << inputPort << std::endl;
+        }
+            
         if (!sendSock.isOk())
         {
             std::cout << "send socket not ok\n";
         }
         else
-            outputPortOk.store(true);
+        {
+            outputPortActive.store(true);
+            std::cout << "Client started, will send packets to port " << outputPort << std::endl;
+        }
+            
 
-        std::cout << "Server started, will listen to packets on port " << inputPort << std::endl;
+        
         PacketReader pr;
         PacketWriter pw;
 
         while (!oscThreadShouldStop)
         {
-            if (outputPortOk.load())
+            if (outputPortActive.load())
                 handleOutputMessages(sendSock, pw);
             if (!receiveSock.isOk())
             {
@@ -587,7 +595,7 @@ struct OSCAdapter
     std::function<void()> onMainThread;
     bool pluginParametersNormalized = true;
     std::atomic<bool> inputPortActive{false};
-    std::atomic<bool> outputPortOk{false};
+    std::atomic<bool> outputPortActive{false};
     int oscTimeOut = 30; // milliseconds
     const clap_plugin *targetPlugin = nullptr;
     const clap_host *clapHost = nullptr;
