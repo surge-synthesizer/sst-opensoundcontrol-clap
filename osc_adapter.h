@@ -168,15 +168,18 @@ struct OSCAdapter
                 clap_param_info pinfo;
                 if (paramsExtension->get_info(p, i, &pinfo))
                 {
-                    indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
-                    idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
-                    auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name << "\"
-                    // [range "
-                    //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
-                    addressToClapInfo[address] = fromFullParamInfo(&pinfo);
-                    idToAddress[pinfo.id] = address;
-                    latestParamValues[pinfo.id] = pinfo.default_value;
+                    if (pinfo.flags & CLAP_PARAM_IS_AUTOMATABLE)
+                    {
+                        indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
+                        idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
+                        auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
+                        // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name <<
+                        // "\" [range "
+                        //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
+                        addressToClapInfo[address] = fromFullParamInfo(&pinfo);
+                        idToAddress[pinfo.id] = address;
+                        latestParamValues[pinfo.id] = pinfo.default_value;
+                    }
                 }
             }
             // for testing with TouchOsc
