@@ -173,9 +173,11 @@ struct OSCAdapter
                         indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
                         idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
                         auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                        // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name <<
-                        // "\" [range "
-                        //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
+                        /*
+                        outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name
+                                << "\" [range " << pinfo.min_value << " .. " << pinfo.max_value
+                                << "]\n";
+                        */
                         addressToClapInfo[address] = fromFullParamInfo(&pinfo);
                         idToAddress[pinfo.id] = address;
                         latestParamValues[pinfo.id] = pinfo.default_value;
