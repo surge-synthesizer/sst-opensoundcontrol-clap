@@ -168,15 +168,18 @@ struct OSCAdapter
                 clap_param_info pinfo;
                 if (paramsExtension->get_info(p, i, &pinfo))
                 {
-                    indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
-                    idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
-                    auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
-                    // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name << "\"
-                    // [range "
-                    //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
-                    addressToClapInfo[address] = fromFullParamInfo(&pinfo);
-                    idToAddress[pinfo.id] = address;
-                    latestParamValues[pinfo.id] = pinfo.default_value;
+                    if (pinfo.flags & CLAP_PARAM_IS_AUTOMATABLE)
+                    {
+                        indexToClapParamInfo[i] = fromFullParamInfo(&pinfo);
+                        idToClapParamInfo[pinfo.id] = fromFullParamInfo(&pinfo);
+                        auto address = "/param/" + makeOscAddressFromParameterName(pinfo.name);
+                        // outfile << address << " -> \"" << pinfo.module << "/" << pinfo.name <<
+                        // "\" [range "
+                        //         << pinfo.min_value << " .. " << pinfo.max_value << "]\n";
+                        addressToClapInfo[address] = fromFullParamInfo(&pinfo);
+                        idToAddress[pinfo.id] = address;
+                        latestParamValues[pinfo.id] = pinfo.default_value;
+                    }
                 }
             }
             // for testing with TouchOsc
@@ -205,7 +208,7 @@ struct OSCAdapter
         for (auto &c : result)
         {
             c = std::tolower(c);
-            if ((!std::isalnum(c)) || c == ' ')
+            if (!std::isalnum(static_cast<unsigned char>(c)))
                 c = '_';
         }
         return result;
@@ -423,7 +426,17 @@ struct OSCAdapter
                 if (it != latestParamValues.end())
                 {
                     const auto &addr = idToAddress[pev->param_id];
-                    repl.init(addr).pushFloat(it->second);
+                    float valtosend = it->second;
+                    if (pluginParametersNormalized)
+                    {
+                        auto infoit = idToClapParamInfo.find(pev->param_id);
+                        if (infoit != idToClapParamInfo.end())
+                        {
+                            valtosend = mapvalue<float>(valtosend, infoit->second.min_value,
+                                                        infoit->second.max_value, 0.0, 1.0);
+                        }
+                    }
+                    repl.init(addr).pushFloat(valtosend);
                     pw.init().addMessage(repl);
                     socket.sendPacketTo(pw.packetData(), pw.packetSize(), socket.packetOrigin());
                 }
