@@ -9,7 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
-#include <mutex>
+#include <functional>
 #include <optional>
 #include <ostream>
 #include <thread>
