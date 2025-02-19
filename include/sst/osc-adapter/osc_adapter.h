@@ -204,6 +204,10 @@ struct OSCAdapter
 #endif
         }
     }
+    ~OSCAdapter()
+    {
+        stop();
+    }
     std::string makeOscAddressFromParameterName(const std::string &parname)
     {
         std::string result = parname;
@@ -229,6 +233,8 @@ struct OSCAdapter
             oscThread->join();
             oscThread = nullptr;
         }
+        activeInputPort = 0;
+        activeOutputPort = 0;
     }
     void stop() { stopOscThread(); }
     void postEventForOscOutput(const clap_event_header *ev)
