@@ -5,5 +5,5 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_library(${PROJECT_NAME} INTERFACE)
 target_include_directories(${PROJECT_NAME} INTERFACE include)
-target_compile_definitions(${PROJECT_NAME} INTERFACE _USE_MATH_DEFINES=1)
+target_compile_definitions(${PROJECT_NAME} INTERFACE _USE_MATH_DEFINES=1 _WINSOCK_DEPRECATED_NO_WARNINGS)
 
